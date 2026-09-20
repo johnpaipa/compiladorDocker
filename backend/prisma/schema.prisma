@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Assessment {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String?
+  timeLimit   Int
+  createdAt   DateTime   @default(now())
+  questions   Question[]
+}
+
+model Question {
+  id           Int         @id @default(autoincrement())
+  title        String
+  description  String
+  language     String
+  score        Int
+  assessment   Assessment  @relation(fields: [assessmentId], references: [id])
+  assessmentId Int
+  testCases    TestCase[]
+}
+
+model TestCase {
+  id             Int       @id @default(autoincrement())
+  input          String
+  expectedOutput String
+  question       Question  @relation(fields: [questionId], references: [id])
+  questionId     Int
+}
+
+model Submission {
+  id          Int       @id @default(autoincrement())
+  candidateId String
+  questionId  Int
+  code        String
+  language    String
+  passed      Boolean?
+  score       Int?
+  createdAt   DateTime  @default(now())
+}
