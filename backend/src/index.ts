@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import assessmentsRouter from './routes/assessments';
 import questionsRouter from './routes/questions';
 import submissionsRouter from './routes/submissions';
+import { prepareRunners } from './executor';
 
 dotenv.config();
 
@@ -24,4 +25,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  prepareRunners();
 });

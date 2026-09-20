@@ -1,45 +1,91 @@
-import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import api from '../api';
+import { Link, useParams } from 'react-router-dom';
+import { useApi } from '../useApi';
+import { Badge, PageState, ProgressBar } from '../components/ui';
+import { formatDuration } from '../format';
+import type { Assessment, ResultsData } from '../types';
 
 export default function Results() {
-  const { assessmentId, candidateId } = useParams();
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { assessmentId, candidateId = '' } = useParams();
+  const { data, error, loading, reload } = useApi<ResultsData>(
+    `/assessments/${assessmentId}/results/${encodeURIComponent(candidateId)}`,
+  );
 
-  useEffect(() => {
-    api.get(`/assessments/${assessmentId}/results/${candidateId}`)
-      .then((res) => setData(res.data))
-      .catch((err) => console.error(err))
-      .finally(() => setLoading(false));
-  }, [assessmentId, candidateId]);
+  const { data: assessment } = useApi<Assessment>(`/assessments/${assessmentId}`);
 
-  if (loading) return <p>Cargando resultados...</p>;
-  if (!data) return <p>No se encontraron resultados</p>;
+  if (loading || error || !data) {
+    return (
+      <main className="page">
+        <PageState loading={loading} error={error ?? 'No se encontraron resultados'} onRetry={reload} />
+      </main>
+    );
+  }
+
+  const tone = data.percentage >= 70 ? 'ok' : data.percentage >= 40 ? 'warn' : 'bad';
 
   return (
-    <div className="container">
-      <Link to={`/assessments/${assessmentId}`}>← Volver al assessment</Link>
-      <h1>Resultados de {candidateId}</h1>
+    <main className="page">
+      <Link to={`/assessments/${assessmentId}`} className="back">← Volver a la evaluación</Link>
 
-      <div className="results-summary">
-        <p><strong>Puntaje total:</strong> {data.totalObtainedScore} / {data.totalMaxScore} ({data.percentage}%)</p>
-        <p><strong>Correctas:</strong> {data.correctCount}</p>
-        <p><strong>Incorrectas:</strong> {data.incorrectCount}</p>
-        <p><strong>Sin responder:</strong> {data.notAttemptedCount}</p>
-        <p><strong>Tiempo consumido:</strong> {data.timeConsumedSeconds} segundos</p>
+      <header className="page-header">
+        <span className="eyebrow">Resultados</span>
+        <h1>{assessment?.name ?? 'Evaluación'}</h1>
+        <div className="chips">
+          <Badge tone="accent">Candidato: {candidateId}</Badge>
+          {assessment && <Badge>⏱ Límite {assessment.timeLimit} min</Badge>}
+          <Badge>{data.totalQuestions} pregunta{data.totalQuestions === 1 ? '' : 's'}</Badge>
+        </div>
+      </header>
+
+      <section className="card score-card">
+        <div className="score-main">
+          <span className={`score-value score-${tone}`}>{data.percentage}%</span>
+          <span className="muted">
+            {data.totalObtainedScore} de {data.totalMaxScore} puntos
+          </span>
+        </div>
+        <ProgressBar value={data.percentage} tone={tone} />
+      </section>
+
+      <div className="stats">
+        <Stat label="Correctas" value={data.correctCount} tone="ok" />
+        <Stat label="Incorrectas" value={data.incorrectCount} tone="bad" />
+        <Stat label="Sin responder" value={data.notAttemptedCount} />
+        <Stat label="Tiempo consumido" value={formatDuration(data.timeConsumedSeconds)} />
       </div>
 
-      <h2>Detalle por pregunta</h2>
-      <div className="card-list">
-        {data.questionResults.map((q: any) => (
-          <div key={q.questionId} className={`card ${q.passed ? 'pass' : q.attempted ? 'fail' : 'pending'}`}>
-            <h3>{q.title}</h3>
-            <p>Puntaje: {q.obtainedScore} / {q.maxScore}</p>
-            <p>{q.attempted ? (q.passed ? '✅ Correcta' : '❌ Incorrecta') : '⏳ Sin responder'}</p>
-          </div>
-        ))}
+      <div className="section-title">
+        <h2>Detalle por pregunta</h2>
       </div>
+      <div className="stack">
+        {data.questionResults.map((q) => {
+          const status = q.passed ? 'ok' : q.attempted ? 'bad' : 'neutral';
+          return (
+            <div key={q.questionId} className={`card result-row result-${status}`}>
+              <div className="result-info">
+                <h3>{q.title}</h3>
+                <p className="muted">
+                  {q.obtainedScore} / {q.maxScore} pts
+                </p>
+              </div>
+              <Badge tone={status}>
+                {q.passed ? '✓ Correcta' : q.attempted ? '✕ Incorrecta' : 'Sin responder'}
+              </Badge>
+              <Link className="btn btn-secondary" to={`/questions/${q.questionId}/solve`}>
+                {q.attempted ? 'Reintentar' : 'Resolver'}
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+    </main>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number | string; tone?: 'ok' | 'bad' }) {
+  return (
+    <div className="card stat">
+      <span className={`stat-value ${tone ? `stat-${tone}` : ''}`}>{value}</span>
+      <span className="muted">{label}</span>
     </div>
   );
 }

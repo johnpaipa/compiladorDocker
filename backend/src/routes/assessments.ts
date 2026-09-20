@@ -3,16 +3,85 @@ import { prisma } from '../prismaClient';
 
 const router = Router();
 
+function parseAssessment(body: any): { error: string } | { data: { name: string; description: string | null; timeLimit: number } } {
+  const name = String(body.name ?? '').trim();
+  const description = String(body.description ?? '').trim();
+  const timeLimit = Number(body.timeLimit);
+  if (!name) return { error: 'El nombre es obligatorio' };
+  if (!Number.isInteger(timeLimit) || timeLimit <= 0) return { error: 'El tiempo límite debe ser un entero de minutos mayor a 0' };
+  return { data: { name, description: description || null, timeLimit } };
+}
+
 // Crear assessment
 router.post('/', async (req, res) => {
   try {
-    const { name, description, timeLimit } = req.body;
-    const assessment = await prisma.assessment.create({
-      data: { name, description, timeLimit },
-    });
+    const parsed = parseAssessment(req.body);
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+    const assessment = await prisma.assessment.create({ data: parsed.data });
     res.status(201).json(assessment);
   } catch (error) {
     res.status(500).json({ error: 'Error al crear el assessment' });
+  }
+});
+
+// Editar un assessment
+router.put('/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const parsed = parseAssessment(req.body);
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+    if (!(await prisma.assessment.findUnique({ where: { id } }))) {
+      return res.status(404).json({ error: 'Assessment no encontrado' });
+    }
+    res.json(await prisma.assessment.update({ where: { id }, data: parsed.data }));
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar el assessment' });
+  }
+});
+
+// Eliminar un assessment con sus preguntas, casos de prueba y envíos
+router.delete('/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!(await prisma.assessment.findUnique({ where: { id } }))) {
+      return res.status(404).json({ error: 'Assessment no encontrado' });
+    }
+    const questionIds = (await prisma.question.findMany({ where: { assessmentId: id }, select: { id: true } })).map((q) => q.id);
+    await prisma.$transaction([
+      prisma.submission.deleteMany({ where: { questionId: { in: questionIds } } }),
+      prisma.testCase.deleteMany({ where: { questionId: { in: questionIds } } }),
+      prisma.question.deleteMany({ where: { assessmentId: id } }),
+      prisma.assessment.delete({ where: { id } }),
+    ]);
+    res.status(204).end();
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al eliminar el assessment' });
+  }
+});
+
+// Candidatos que han enviado respuestas a un assessment
+router.get('/:id/candidates', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const questions = await prisma.question.findMany({ where: { assessmentId: id }, select: { id: true } });
+    const grouped = await prisma.submission.groupBy({
+      by: ['candidateId'],
+      where: { questionId: { in: questions.map((q) => q.id) } },
+      _count: { _all: true },
+      _max: { createdAt: true },
+      orderBy: { _max: { createdAt: 'desc' } },
+    });
+    res.json(
+      grouped.map((g) => ({
+        candidateId: g.candidateId,
+        submissions: g._count._all,
+        lastActivity: g._max.createdAt,
+      }))
+    );
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al listar candidatos' });
   }
 });
 
