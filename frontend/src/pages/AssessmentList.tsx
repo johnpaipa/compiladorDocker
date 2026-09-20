@@ -6,7 +6,7 @@ import type { Assessment } from '../types';
 export default function AssessmentList() {
   const { data: assessments, error, loading, reload } = useApi<Assessment[]>('/assessments');
 
-  // Un assessment sin preguntas todavía no se puede resolver
+  // sin preguntas no se puede resolver
   const available = assessments?.filter((a) => a.questions.length > 0) ?? [];
   const totalQuestions = available.reduce((sum, a) => sum + a.questions.length, 0);
 

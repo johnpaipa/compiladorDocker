@@ -16,15 +16,11 @@ export interface ExecutionResult {
 
 interface LanguageConfig {
   image: string;
-  /** Carpeta con un Dockerfile si la imagen no es pública (se construye una sola vez). */
   dockerfileDir?: string;
   fileName: string;
   memory: string;
-  /** Comando de compilación (opcional). Debe volcar sus diagnósticos en compile_error.txt. */
   compile?: string;
-  /** Comando que ejecuta el programa leyendo la entrada por stdin. */
   run: string;
-  /** Tiempo extra (ms) que se concede a la compilación */
   compileBudgetMs: number;
 }
 
@@ -47,7 +43,7 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
   },
   java: {
     image: 'eclipse-temurin:21-jdk',
-    fileName: 'Main.java', // el nombre DEBE coincidir con la clase pública
+    fileName: 'Main.java', // la clase pública debe llamarse Main
     memory: '256m',
     compile: 'javac Main.java 2> compile_error.txt',
     run: 'java Main',
@@ -57,8 +53,8 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
     image: 'kata-runner-typescript',
     dockerfileDir: runnerDir('typescript'),
     fileName: 'solution.ts',
-    memory: '512m', // tsc necesita más memoria que node a secas
-    // tsc escribe los diagnósticos en stdout, por eso se redirige todo al archivo
+    memory: '512m', // tsc necesita más memoria
+    // tsc imprime los errores por stdout
     compile:
       'tsc solution.ts --target es2022 --module commonjs --moduleResolution node --skipLibCheck --typeRoots /opt/ts/node_modules/@types --types node > compile_error.txt 2>&1',
     run: 'node solution.js',
@@ -77,18 +73,15 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
 
 export const SUPPORTED_LANGUAGES = Object.keys(LANGUAGE_CONFIG);
 
-const RUN_TIMEOUT_S = 5; // por caso de prueba
+const RUN_TIMEOUT_S = 5;
 const COMPILE_TIMEOUT_S = 60;
-const COMPILE_FAILED = 100; // código de salida del script cuando no compila
+const COMPILE_FAILED = 100;
 const MAX_OUTPUT_CHARS = 64 * 1024;
-
-// --- Imágenes propias (TypeScript, COBOL) -------------------------------------
-// Se construyen una vez con `docker build`; las peticiones concurrentes comparten la misma promesa.
 
 const imageReady = new Map<string, Promise<void>>();
 
 function ensureImage(config: LanguageConfig): Promise<void> {
-  if (!config.dockerfileDir) return Promise.resolve(); // imagen pública: docker run la descarga sola
+  if (!config.dockerfileDir) return Promise.resolve();
 
   let ready = imageReady.get(config.image);
   if (!ready) {
@@ -97,7 +90,7 @@ function ensureImage(config: LanguageConfig): Promise<void> {
         await execAsync(`docker image inspect ${config.image}`);
         return;
       } catch {
-        /* no existe todavía: se construye */
+        // no existe, se construye
       }
       console.log(`Construyendo imagen ${config.image} (solo ocurre la primera vez)...`);
       await execAsync(`docker build -t ${config.image} "${config.dockerfileDir}"`, {
@@ -107,12 +100,11 @@ function ensureImage(config: LanguageConfig): Promise<void> {
       console.log(`Imagen ${config.image} lista`);
     })();
     imageReady.set(config.image, ready);
-    ready.catch(() => imageReady.delete(config.image)); // permite reintentar
+    ready.catch(() => imageReady.delete(config.image));
   }
   return ready;
 }
 
-/** Precalienta las imágenes propias al arrancar para que la primera ejecución no espere el build. */
 export function prepareRunners() {
   for (const [language, config] of Object.entries(LANGUAGE_CONFIG)) {
     ensureImage(config).catch((err) =>
@@ -121,15 +113,11 @@ export function prepareRunners() {
   }
 }
 
-/**
- * Script que corre dentro del contenedor: compila UNA vez y luego ejecuta cada entrada
- * (in_N.txt) guardando salida, errores y código de salida (out_N / err_N / code_N).
- * Escribirlo como archivo evita los problemas de comillas del shell de Windows.
- */
+// run.sh compila una vez y ejecuta cada in_N.txt; va en un archivo por las comillas de cmd
 function buildScript(config: LanguageConfig): string {
   const lines = [
     '#!/bin/sh',
-    'ulimit -f 20480', // tope de ~10 MB por archivo escrito: evita llenar el disco con una salida infinita
+    'ulimit -f 20480', // limita lo que puede escribir el programa
   ];
   if (config.compile) {
     lines.push(`timeout ${COMPILE_TIMEOUT_S} ${config.compile} || { cat compile_error.txt >&2; exit ${COMPILE_FAILED}; }`);
@@ -150,7 +138,6 @@ function buildScript(config: LanguageConfig): string {
 const readTrimmed = (file: string) =>
   fs.existsSync(file) ? fs.readFileSync(file, 'utf8').slice(0, MAX_OUTPUT_CHARS).trim() : '';
 
-/** Compila una vez y ejecuta el código contra todas las entradas dentro de un contenedor aislado. */
 export async function runTests(
   language: string,
   code: string,
@@ -177,25 +164,25 @@ export async function runTests(
   const dockerCommand = [
     'docker run --rm',
     `--name ${containerName}`,
-    '--network none', // sin acceso a red
-    `--memory=${config.memory}`, // límite de memoria
-    '--cpus=0.5', // límite de CPU
+    '--network none',
+    `--memory=${config.memory}`,
+    '--cpus=0.5',
     '--pids-limit=256', // evita fork bombs
     '--security-opt no-new-privileges',
-    `-v "${dockerVolumePath}:/app"`, // el compilador necesita escribir su salida, así que no puede ser :ro
+    `-v "${dockerVolumePath}:/app"`, // sin :ro para que el compilador pueda escribir
     '-w /app',
     config.image,
     'sh run.sh',
   ].join(' ');
 
-  // Presupuesto total: compilación + cada caso + margen de arranque del contenedor
+  // compilación + un margen por cada caso
   const hostTimeoutMs = config.compileBudgetMs + inputs.length * (RUN_TIMEOUT_S + 1) * 1000 + 8000;
 
   try {
     try {
       await execAsync(dockerCommand, { timeout: hostTimeoutMs, maxBuffer: 10 * 1024 * 1024 });
     } catch (error: any) {
-      // Si el proceso de docker se mata por tiempo, el contenedor sigue vivo: se elimina explícitamente
+      // si docker se corta por tiempo el contenedor sigue vivo, se borra a mano
       await execAsync(`docker rm -f ${containerName}`).catch(() => undefined);
 
       if (error.code === COMPILE_FAILED) {
@@ -209,7 +196,7 @@ export async function runTests(
 
     return inputs.map((_, i) => {
       const exitCode = Number(readTrimmed(path.join(tempDir, `code_${i}.txt`)) || '-1');
-      const timedOut = exitCode === 124; // código de `timeout`
+      const timedOut = exitCode === 124; // timeout devuelve 124
       let stderr = readTrimmed(path.join(tempDir, `err_${i}.txt`));
       if (timedOut && !stderr) stderr = `Tiempo límite excedido (${RUN_TIMEOUT_S} s)`;
       if (exitCode === 137 && !stderr) stderr = 'Proceso terminado: límite de memoria excedido';

@@ -3,17 +3,13 @@ import { LANGUAGES } from '../languages';
 import LanguageIcon from './LanguageIcon';
 
 interface Props {
-  /** Ids de lenguajes permitidos, en el orden a mostrar */
   options: string[];
   value: string;
   onChange: (id: string) => void;
   disabled?: boolean;
 }
 
-/**
- * Selector de lenguaje con íconos. Un <select> nativo no puede pintar imágenes en sus
- * opciones, así que es un listbox propio con soporte de teclado (↑ ↓ Enter Esc).
- */
+// listbox propio porque un <select> no puede mostrar imágenes
 export default function LanguagePicker({ options, value, onChange, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);

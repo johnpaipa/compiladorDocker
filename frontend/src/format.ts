@@ -1,6 +1,5 @@
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** 3725000 ms -> "1:02:05", 65000 ms -> "01:05" */
 export function formatClock(ms: number): string {
   const total = Math.ceil(ms / 1000);
   const h = Math.floor(total / 3600);
@@ -9,7 +8,6 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-/** 125 s -> "2 min 5 s" */
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return '—';
   if (seconds < 60) return `${seconds} s`;

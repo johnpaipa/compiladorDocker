@@ -16,7 +16,6 @@ interface CaseDraft {
 let nextKey = 1;
 const newCase = (input = '', expectedOutput = ''): CaseDraft => ({ key: nextKey++, input, expectedOutput });
 
-/** Crea (`/admin/assessments/:assessmentId/questions/new`) o edita (`/admin/questions/:questionId/edit`) una pregunta. */
 export default function QuestionFormPage() {
   const { questionId } = useParams();
   const { data: question, error, loading, reload } = useApi<Question>(questionId ? `/questions/${questionId}` : null);
@@ -73,7 +72,6 @@ function QuestionForm({ question }: { question: Question | null }) {
     const body = {
       title: title.trim(),
       description: description.trim(),
-      // Se conserva el orden del catálogo para que sea estable
       language: LANGUAGES.filter((l) => languages.includes(l.id)).map((l) => l.id).join(','),
       score: points,
       assessmentId,

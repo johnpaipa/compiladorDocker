@@ -1,12 +1,11 @@
 export interface LanguageInfo {
   id: string;
   label: string;
-  /** Lenguaje "plus" del reto (no obligatorio) */
   plus?: boolean;
   template: string;
 }
 
-// Deben coincidir con los lenguajes que soporta el motor de ejecución del backend.
+// tienen que coincidir con los del backend
 export const LANGUAGES: LanguageInfo[] = [
   {
     id: 'java',
@@ -40,7 +39,6 @@ export const LANGUAGES: LanguageInfo[] = [
 export const languageLabel = (id: string) => LANGUAGES.find((l) => l.id === id)?.label ?? id;
 export const languageTemplate = (id: string) => LANGUAGES.find((l) => l.id === id)?.template ?? '';
 
-/** La pregunta guarda sus lenguajes permitidos como "java,python". */
 export const parseLanguages = (value: string) =>
   value
     .split(',')

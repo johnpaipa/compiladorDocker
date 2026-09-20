@@ -9,7 +9,7 @@ const COLORS: Record<string, string> = {
   cobol: '#0a7ea4',
 };
 
-/** COBOL no tiene logo de marca: se dibuja una placa de terminal con sus siglas. */
+// COBOL no tiene logo de marca, se dibuja uno
 function CobolIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden focusable="false">
@@ -22,7 +22,6 @@ function CobolIcon({ size }: { size: number }) {
   );
 }
 
-/** Ícono del lenguaje con su color de marca. Mismo tamaño para todos. */
 export default function LanguageIcon({ id, size = 18 }: { id: string; size?: number }) {
   const color = COLORS[id] ?? 'currentColor';
   let icon;

@@ -1,19 +1,20 @@
 import { Router } from 'express';
 import { prisma } from '../prismaClient';
 import { SUPPORTED_LANGUAGES } from '../executor';
+import { isStaff, requireStaff } from '../auth';
+import { findAttempt } from '../attempts';
 
 const router = Router();
 
 interface QuestionInput {
   title: string;
   description: string;
-  language: string; // lenguajes permitidos separados por coma: "javascript,python"
+  language: string; // ej. "javascript,python"
   score: number;
   assessmentId?: number;
   testCases: { input: string; expectedOutput: string }[];
 }
 
-/** Valida el cuerpo de una pregunta; devuelve un mensaje de error o los datos normalizados. */
 function parseQuestion(body: any): { error: string } | { data: QuestionInput } {
   const title = String(body.title ?? '').trim();
   const description = String(body.description ?? '').trim();
@@ -51,7 +52,7 @@ function parseQuestion(body: any): { error: string } | { data: QuestionInput } {
 }
 
 // Crear pregunta con sus test cases
-router.post('/', async (req, res) => {
+router.post('/', requireStaff, async (req, res) => {
   try {
     const parsed = parseQuestion(req.body);
     if ('error' in parsed) return res.status(400).json({ error: parsed.error });
@@ -72,24 +73,33 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Obtener una pregunta por id
+// Obtener una pregunta por id (el candidato solo recibe el primer caso)
 router.get('/:id', async (req, res) => {
   try {
     const question = await prisma.question.findUnique({
       where: { id: Number(req.params.id) },
-      include: { testCases: true },
+      include: { testCases: { orderBy: { id: 'asc' } } },
     });
     if (!question) {
       return res.status(404).json({ error: 'Pregunta no encontrada' });
     }
-    res.json(question);
+
+    const user = req.user!;
+    if (isStaff(user)) {
+      return res.json({ ...question, testCaseCount: question.testCases.length });
+    }
+    if (!(await findAttempt(user.id, question.assessmentId))) {
+      // el frontend usa assessmentId para redirigir al candidato
+      return res.status(403).json({ error: 'Debes comenzar la evaluación para ver esta pregunta', assessmentId: question.assessmentId });
+    }
+    res.json({ ...question, testCaseCount: question.testCases.length, testCases: question.testCases.slice(0, 1) });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener la pregunta' });
   }
 });
 
-// Editar una pregunta (los casos de prueba se reemplazan completos)
-router.put('/:id', async (req, res) => {
+// Editar una pregunta
+router.put('/:id', requireStaff, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const parsed = parseQuestion(req.body);
@@ -115,8 +125,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Eliminar una pregunta junto con sus casos de prueba y envíos
-router.delete('/:id', async (req, res) => {
+// Eliminar una pregunta
+router.delete('/:id', requireStaff, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!(await prisma.question.findUnique({ where: { id } }))) {

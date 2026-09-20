@@ -6,10 +6,6 @@ export interface Diagnostic {
 
 const first = (re: RegExp, text: string) => re.exec(text);
 
-/**
- * Interpreta el stderr de una ejecución para mostrarlo como en un IDE:
- * error de compilación / sintaxis o error de ejecución, con su línea.
- */
 export function diagnose(language: string, stderr: string): Diagnostic | null {
   if (!stderr.trim()) return null;
 

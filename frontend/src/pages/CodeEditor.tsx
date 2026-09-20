@@ -2,64 +2,81 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import api, { errorMessage } from '../api';
+import { isStaffRole, useAuth } from '../auth';
 import { useApi } from '../useApi';
-import { clearDraft, loadDraft, saveDraft, useCandidate, useCountdown, useStartedAt } from '../session';
+import { clearDraft, loadDraft, saveDraft, useAttempt, useCountdown, type AttemptState } from '../session';
 import { Badge, Countdown, PageState, ProgressBar } from '../components/ui';
 import LanguageIcon from '../components/LanguageIcon';
 import LanguagePicker from '../components/LanguagePicker';
 import { setupMonaco } from '../monacoSetup';
 import { languageLabel, languageTemplate, parseLanguages } from '../languages';
 import { diagnose, type Diagnostic } from '../diagnostics';
-import type { Assessment, CaseResult, Question, SubmissionResponse } from '../types';
+import type { Assessment, CaseResult, Question, SubmissionResponse, User } from '../types';
 
 export default function CodeEditor() {
   const { questionId } = useParams();
-  const candidate = useCandidate();
-  const { data: question, error, loading, reload } = useApi<Question>(`/questions/${questionId}`);
-  const { data: assessment } = useApi<Assessment>(question ? `/assessments/${question.assessmentId}` : null);
-  const startedAt = useStartedAt(question?.assessmentId, candidate);
+  const { user } = useAuth();
+  const staff = user ? isStaffRole(user.role) : false;
 
-  if (loading || error || !question) {
+  const { data: question, error, errorStatus, errorBody, loading, reload } = useApi<Question>(`/questions/${questionId}`);
+  const { data: assessment } = useApi<Assessment>(question ? `/assessments/${question.assessmentId}` : null);
+  const { attempt, started, loading: attemptLoading } = useAttempt(staff || !question ? null : question.assessmentId);
+
+  // 403 con assessmentId: el candidato aún no comenzó
+  const lockedAssessmentId = (errorBody as { assessmentId?: number } | null)?.assessmentId;
+  if (errorStatus === 403 && lockedAssessmentId) {
+    return <Navigate to={`/assessments/${lockedAssessmentId}`} replace />;
+  }
+
+  if (loading || error || !question || !user) {
     return (
       <main className="page">
         <PageState loading={loading} error={error ?? 'Pregunta no encontrada'} onRetry={reload} />
+        {error && <p className="state"><Link to="/">← Volver a las evaluaciones</Link></p>}
       </main>
     );
   }
-  if (!assessment) {
+  if (!assessment || attemptLoading) {
     return (
       <main className="page">
         <PageState loading />
       </main>
     );
   }
-  // Sin nombre o sin haber comenzado el assessment: se vuelve a la pantalla de inicio.
-  if (!candidate || startedAt === null) {
+  if (!staff && !started) {
     return <Navigate to={`/assessments/${question.assessmentId}`} replace />;
   }
 
   return (
-    <Workspace key={`${candidate}:${question.id}`} question={question} assessment={assessment} candidate={candidate} startedAt={startedAt} />
+    <Workspace
+      key={`${user.id}:${question.id}`}
+      question={question}
+      assessment={assessment}
+      user={user}
+      staff={staff}
+      attempt={attempt}
+    />
   );
 }
 
 interface WorkspaceProps {
   question: Question;
   assessment: Assessment;
-  candidate: string;
-  startedAt: number;
+  user: User;
+  staff: boolean;
+  attempt: AttemptState | null;
 }
 
 type RunMode = 'run' | 'submit';
 
-function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProps) {
+function Workspace({ question, assessment, user, staff, attempt }: WorkspaceProps) {
   const allowed = parseLanguages(question.language);
-  const [language, setLanguage] = useState(allowed[0]);
-  const [code, setCode] = useState(() => loadDraft(candidate, question.id, allowed[0]) ?? languageTemplate(allowed[0]));
+  const [language, setLanguage] = useState(allowed[0]!);
+  const [code, setCode] = useState(() => loadDraft(user.id, question.id, allowed[0]!) ?? languageTemplate(allowed[0]!));
   const [running, setRunning] = useState<RunMode | null>(null);
   const [output, setOutput] = useState<SubmissionResponse | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
-  const { remainingMs, expired } = useCountdown(startedAt, assessment.timeLimit);
+  const { remainingMs, expired } = useCountdown(attempt);
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
@@ -68,9 +85,10 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
   const prev = assessment.questions[index - 1];
   const next = assessment.questions[index + 1];
   const example = question.testCases?.[0];
-  const resultsPath = `/results/${assessment.id}/${encodeURIComponent(candidate)}`;
+  const resultsPath = `/results/${assessment.id}/${user.id}`;
+  const backPath = `/assessments/${assessment.id}`;
 
-  // Diagnóstico (compilación / ejecución) del primer caso que escribió en stderr
+  // diagnóstico del primer caso con stderr
   const diagnostic = output
     ? diagnose(language, output.results.find((r) => r.stderr)?.stderr ?? '')
     : null;
@@ -105,7 +123,6 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
     setMarkers(null);
     try {
       const res = await api.post<SubmissionResponse>('/submissions', {
-        candidateId: candidate,
         questionId: question.id,
         code,
         language,
@@ -120,7 +137,7 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
     }
   };
 
-  // Ctrl/Cmd+Enter dentro del editor ejecuta la versión más reciente de handleRun.
+  // Ctrl/Cmd+Enter usa siempre la última versión de handleRun
   const runRef = useRef(handleRun);
   useEffect(() => {
     runRef.current = handleRun;
@@ -135,13 +152,13 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
   const handleChange = (value: string | undefined) => {
     const updated = value ?? '';
     setCode(updated);
-    saveDraft(candidate, question.id, language, updated);
+    saveDraft(user.id, question.id, language, updated);
     setMarkers(null);
   };
 
   const handleLanguageChange = (id: string) => {
     setLanguage(id);
-    setCode(loadDraft(candidate, question.id, id) ?? languageTemplate(id));
+    setCode(loadDraft(user.id, question.id, id) ?? languageTemplate(id));
     setOutput(null);
     setRunError(null);
     setMarkers(null);
@@ -149,7 +166,7 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
 
   const handleReset = () => {
     if (!window.confirm('¿Restablecer el código a la plantilla inicial? Perderás tu borrador.')) return;
-    clearDraft(candidate, question.id, language);
+    clearDraft(user.id, question.id, language);
     setCode(languageTemplate(language));
     setOutput(null);
     setMarkers(null);
@@ -158,10 +175,10 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
   return (
     <main className="page page-wide">
       <div className="workspace-bar">
-        <Link to={`/assessments/${assessment.id}`} className="back">← {assessment.name}</Link>
+        <Link to={backPath} className="back">← {assessment.name}</Link>
         <div className="workspace-bar-right">
           <span className="muted">Pregunta {index + 1} de {assessment.questions.length}</span>
-          <Countdown remainingMs={remainingMs} />
+          {staff ? <Badge tone="warn">Vista previa</Badge> : <Countdown remainingMs={remainingMs} />}
         </div>
       </div>
 
@@ -196,6 +213,9 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
                 </div>
               </div>
             </>
+          )}
+          {!staff && (question.testCaseCount ?? 0) > 1 && (
+            <p className="muted">Tu solución también se evaluará con {(question.testCaseCount ?? 1) - 1} caso(s) oculto(s).</p>
           )}
 
           <nav className="question-nav" aria-label="Navegación entre preguntas">
@@ -234,13 +254,19 @@ function Workspace({ question, assessment, candidate, startedAt }: WorkspaceProp
             <button className="btn btn-secondary" onClick={() => handleRun('run')} disabled={running !== null || expired}>
               {running === 'run' ? 'Ejecutando…' : '▶ Ejecutar'}
             </button>
-            <button className="btn" onClick={() => handleRun('submit')} disabled={running !== null || expired}>
-              {running === 'submit' ? 'Enviando…' : 'Enviar respuesta'}
-            </button>
-            <Link className="btn btn-secondary push-right" to={resultsPath}>Ver resultados</Link>
+            {!staff && (
+              <button className="btn" onClick={() => handleRun('submit')} disabled={running !== null || expired}>
+                {running === 'submit' ? 'Enviando…' : 'Enviar respuesta'}
+              </button>
+            )}
+            {!staff && <Link className="btn btn-secondary push-right" to={resultsPath}>Ver resultados</Link>}
           </div>
           <p className="hint">
-            <b>Ejecutar</b> prueba tu código sin guardarlo · <b>Enviar respuesta</b> lo califica y guarda ·{' '}
+            {staff ? (
+              <>Vista previa: puedes ejecutar el código con todos los casos de prueba, pero no se guardan envíos. </>
+            ) : (
+              <><b>Ejecutar</b> prueba tu código sin guardarlo · <b>Enviar respuesta</b> lo califica y guarda · </>
+            )}
             <kbd>Ctrl</kbd> + <kbd>Enter</kbd> ejecuta · tu borrador se guarda solo.
           </p>
 
@@ -315,6 +341,20 @@ function Console({ running, output, error, diagnostic }: ConsoleProps) {
 }
 
 function CaseCard({ index, result: r }: { index: number; result: CaseResult }) {
+  // caso oculto: solo se muestra si pasó
+  if (r.hidden) {
+    return (
+      <div className={`case case-hidden ${r.passed ? 'case-pass' : 'case-fail'}`}>
+        <div className="case-summary">
+          <span className="case-mark" aria-hidden>{r.passed ? '✓' : '✕'}</span>
+          Caso {index} <span className="muted">(oculto)</span>
+          <span className="muted case-verdict">{r.passed ? 'Correcto' : 'Incorrecto'}</span>
+          {r.timedOut && <Badge tone="warn">Tiempo excedido</Badge>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <details className={`case ${r.passed ? 'case-pass' : 'case-fail'}`} open={!r.passed}>
       <summary>

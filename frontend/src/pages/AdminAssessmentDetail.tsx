@@ -64,7 +64,7 @@ export default function AdminAssessmentDetail() {
           </div>
         </div>
         <div className="header-actions">
-          <Link className="btn btn-secondary" to={`/assessments/${assessment.id}`}>Ver como candidato</Link>
+          <Link className="btn btn-secondary" to={`/assessments/${assessment.id}`}>Vista previa</Link>
           {!editing && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Editar datos</button>}
           <button className="btn btn-danger" onClick={deleteAssessment}>Eliminar</button>
         </div>
@@ -123,7 +123,7 @@ export default function AdminAssessmentDetail() {
                       ))}
                     </div>
                   </td>
-                  <td>{q.testCases?.length ?? 0}</td>
+                  <td>{q.testCaseCount ?? q.testCases?.length ?? 0}</td>
                   <td>{q.score} pts</td>
                   <td className="table-actions">
                     <Link className="btn btn-secondary btn-sm" to={`/admin/questions/${q.id}/edit`}>Editar</Link>
@@ -140,13 +140,14 @@ export default function AdminAssessmentDetail() {
         <h2>Candidatos</h2>
       </div>
       {!candidates || candidates.length === 0 ? (
-        <div className="state">Ningún candidato ha enviado respuestas todavía.</div>
+        <div className="state">Ningún candidato ha iniciado este assessment todavía.</div>
       ) : (
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
                 <th>Candidato</th>
+                <th>Inició</th>
                 <th>Envíos</th>
                 <th>Última actividad</th>
                 <th aria-label="Acciones" />
@@ -154,16 +155,17 @@ export default function AdminAssessmentDetail() {
             </thead>
             <tbody>
               {candidates.map((c) => (
-                <tr key={c.candidateId}>
-                  <td className="table-title">{c.candidateId}</td>
+                <tr key={c.userId}>
+                  <td>
+                    <span className="table-title">{c.name}</span>
+                    <div className="muted table-sub">{c.email}</div>
+                  </td>
+                  <td>{formatDate(c.startedAt)}</td>
                   <td>{c.submissions}</td>
                   <td>{formatDate(c.lastActivity)}</td>
                   <td className="table-actions">
-                    <Link
-                      className="btn btn-secondary btn-sm"
-                      to={`/results/${assessment.id}/${encodeURIComponent(c.candidateId)}`}
-                    >
-                      Ver resultados
+                    <Link className="btn btn-secondary btn-sm" to={`/results/${assessment.id}/${c.userId}`}>
+                      Resultados y código
                     </Link>
                   </td>
                 </tr>

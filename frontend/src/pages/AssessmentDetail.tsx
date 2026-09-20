@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { errorMessage } from '../api';
+import { isStaffRole, ROLE_LABELS, useAuth } from '../auth';
 import { useApi } from '../useApi';
-import { setCandidate, startAssessment, useCandidate, useCountdown, useStartedAt } from '../session';
+import { useAttempt, useCountdown } from '../session';
 import { Badge, Countdown, PageState } from '../components/ui';
 import LanguageIcon from '../components/LanguageIcon';
 import { languageLabel, parseLanguages } from '../languages';
@@ -9,34 +11,42 @@ import type { Assessment, ResultsData } from '../types';
 
 export default function AssessmentDetail() {
   const { id } = useParams();
-  const candidate = useCandidate();
-  const startedAt = useStartedAt(id, candidate);
-  const [name, setName] = useState(candidate);
+  const { user } = useAuth();
+  const staff = user ? isStaffRole(user.role) : false;
 
   const { data: assessment, error, loading, reload } = useApi<Assessment>(`/assessments/${id}`);
-  const { remainingMs, expired } = useCountdown(startedAt, assessment?.timeLimit ?? 0);
+  // el personal solo ve vista previa, no tiene intento
+  const { attempt, started, start, loading: attemptLoading } = useAttempt(staff ? null : id);
+  const { remainingMs, expired } = useCountdown(attempt);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
-  const resultsUrl = startedAt ? `/assessments/${id}/results/${encodeURIComponent(candidate)}` : null;
+  const resultsUrl = started && user ? `/assessments/${id}/results/${user.id}` : null;
   const { data: results } = useApi<ResultsData>(resultsUrl);
   const statusByQuestion = new Map(results?.questionResults.map((r) => [r.questionId, r]));
 
-  if (loading || error || !assessment) {
+  if (loading || attemptLoading || error || !assessment || !user) {
     return (
       <main className="page">
-        <PageState loading={loading} error={error ?? 'Assessment no encontrado'} onRetry={reload} />
+        <PageState loading={loading || attemptLoading} error={error ?? 'Assessment no encontrado'} onRetry={reload} />
       </main>
     );
   }
 
-  const started = startedAt !== null;
+  const open = staff || started;
   const totalScore = assessment.questions.reduce((sum, q) => sum + q.score, 0);
 
-  const handleStart = (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setCandidate(trimmed);
-    startAssessment(assessment.id, trimmed);
+  const handleStart = async () => {
+    setStarting(true);
+    setStartError(null);
+    try {
+      await start();
+      reload(); // ahora vienen los enunciados
+    } catch (err) {
+      setStartError(errorMessage(err));
+    } finally {
+      setStarting(false);
+    }
   };
 
   return (
@@ -47,16 +57,26 @@ export default function AssessmentDetail() {
         <h1>{assessment.name}</h1>
         {assessment.description && <p className="lead">{assessment.description}</p>}
         <div className="chips">
-          <Badge>{assessment.questions.length} pregunta{assessment.questions.length === 1 ? "" : "s"}</Badge>
+          <Badge>{assessment.questions.length} pregunta{assessment.questions.length === 1 ? '' : 's'}</Badge>
           <Badge>{totalScore} pts</Badge>
           <Badge>Tiempo límite: {assessment.timeLimit} min</Badge>
-          <Badge tone={!started ? 'neutral' : expired ? 'bad' : 'ok'}>
-            Estado: {!started ? 'Sin iniciar' : expired ? 'Tiempo agotado' : 'En curso'}
-          </Badge>
+          {!staff && (
+            <Badge tone={!started ? 'neutral' : expired ? 'bad' : 'ok'}>
+              Estado: {!started ? 'Sin iniciar' : expired ? 'Tiempo agotado' : 'En curso'}
+            </Badge>
+          )}
         </div>
       </header>
 
-      {started && (
+      {staff && (
+        <div className="banner banner-info">
+          <strong>Vista previa como {ROLE_LABELS[user.role].toLowerCase()}.</strong> Puedes abrir los ejercicios y ejecutar código,
+          pero no se guardan envíos ni corre el cronómetro.{' '}
+          <Link to={`/admin/assessments/${assessment.id}`}>Gestionar este assessment</Link>
+        </div>
+      )}
+
+      {!staff && started && (
         <div className="stats stats-top">
           <div className="card stat">
             <span className="stat-value"><Countdown remainingMs={remainingMs} plain /></span>
@@ -73,36 +93,30 @@ export default function AssessmentDetail() {
         </div>
       )}
 
-      {!started ? (
-        <form className="card start-card" onSubmit={handleStart}>
-          <h2>Antes de empezar</h2>
+      {!staff && !started && (
+        <section className="card start-card">
+          <h2>Hola, {user.name.split(' ')[0]}</h2>
           <p className="card-desc">
-            El cronómetro de {assessment.timeLimit} minutos arranca al comenzar. Tu nombre identifica tus envíos.
+            Al comenzar, el cronómetro de {assessment.timeLimit} minutos empieza a correr y no se detiene. Cuando el tiempo termine,
+            ya no podrás ejecutar ni enviar código.
           </p>
-          <div className="field-row">
-            <input
-              className="input"
-              placeholder="Tu nombre"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              aria-label="Tu nombre"
-              autoFocus
-            />
-            <button className="btn" type="submit" disabled={!name.trim()}>
-              Comenzar evaluación
+          {startError && <p className="form-error" role="alert">{startError}</p>}
+          <div className="form-actions">
+            <button className="btn" onClick={handleStart} disabled={starting || assessment.questions.length === 0}>
+              {starting ? 'Iniciando…' : 'Comenzar evaluación'}
             </button>
           </div>
-        </form>
-      ) : expired ? (
-        <div className="banner banner-bad">
-          El tiempo de la evaluación terminó. Ya no puedes ejecutar más código.
-        </div>
-      ) : null}
+        </section>
+      )}
+
+      {!staff && started && expired && (
+        <div className="banner banner-bad">El tiempo de la evaluación terminó. Ya no puedes ejecutar más código.</div>
+      )}
 
       <div className="section-title">
         <h2>Preguntas</h2>
-        {started && (
-          <Link className="btn btn-secondary" to={`/results/${assessment.id}/${encodeURIComponent(candidate)}`}>
+        {!staff && started && (
+          <Link className="btn btn-secondary" to={`/results/${assessment.id}/${user.id}`}>
             Ver resultados
           </Link>
         )}
@@ -124,17 +138,17 @@ export default function AssessmentDetail() {
                   <Badge>Sin intentar</Badge>
                 ) : null}
               </div>
-              <p className="card-desc">{q.description}</p>
+              <p className="card-desc">{q.description || 'El enunciado se muestra al comenzar la evaluación.'}</p>
               <div className="chips">
                 {parseLanguages(q.language).map((l) => (
                   <Badge key={l} tone="accent"><LanguageIcon id={l} size={14} />{languageLabel(l)}</Badge>
                 ))}
                 <Badge>{q.score} pts</Badge>
-                <Badge>{q.testCases?.length ?? 0} caso(s) de prueba</Badge>
+                <Badge>{q.testCaseCount ?? 0} caso(s) de prueba</Badge>
               </div>
             </>
           );
-          return started ? (
+          return open ? (
             <Link key={q.id} to={`/questions/${q.id}/solve`} className="card card-link">
               {body}
             </Link>

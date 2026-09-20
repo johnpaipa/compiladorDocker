@@ -1,4 +1,4 @@
-# Imagen del runner de COBOL: compilador GnuCOBOL (cobc) + gcc
+# runner de COBOL (GnuCOBOL)
 FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y gnucobol gcc libc6-dev \

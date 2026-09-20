@@ -8,8 +8,7 @@ const COBOL_KEYWORDS = [
   'EQUAL', 'GREATER', 'LESS', 'THAN', 'IS', 'FILLER', 'REDEFINES', 'OCCURS', 'TIMES', 'CALL', 'USING',
 ];
 
-/** Monaco no trae COBOL: se registra un resaltado mínimo. También se silencia la validación semántica
- *  de TypeScript/JavaScript, porque Monaco no conoce los tipos de Node (`require`, `fs`) y marcaría falsos errores. */
+// Monaco no trae COBOL ni conoce los tipos de Node (marcaría require y fs como error)
 export function setupMonaco(monaco: Monaco) {
   if (!monaco.languages.getLanguages().some((l: { id: string }) => l.id === 'cobol')) {
     monaco.languages.register({ id: 'cobol' });

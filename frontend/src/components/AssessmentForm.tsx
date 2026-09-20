@@ -14,7 +14,6 @@ interface Props {
   onCancel?: () => void;
 }
 
-/** Formulario de assessment: nombre, descripción y tiempo límite. */
 export default function AssessmentForm({ initial, submitLabel, onSubmit, onCancel }: Props) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');

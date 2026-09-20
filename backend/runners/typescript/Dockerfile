@@ -1,4 +1,4 @@
-# Imagen del runner de TypeScript: Node + compilador tsc (la ejecución corre sin red)
+# runner de TypeScript (node + tsc)
 FROM node:22-slim
 WORKDIR /opt/ts
 RUN npm init -y >/dev/null && npm install --no-audit --no-fund typescript@5 @types/node@22

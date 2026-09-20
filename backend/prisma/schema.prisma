@@ -7,6 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  EVALUATOR
+  CANDIDATE
+}
+
+model User {
+  id           Int          @id @default(autoincrement())
+  name         String
+  email        String       @unique
+  passwordHash String
+  role         Role         @default(CANDIDATE)
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  submissions  Submission[]
+  attempts     Attempt[]
+}
+
 model Assessment {
   id          Int        @id @default(autoincrement())
   name        String
@@ -14,6 +32,7 @@ model Assessment {
   timeLimit   Int
   createdAt   DateTime   @default(now())
   questions   Question[]
+  attempts    Attempt[]
 }
 
 model Question {
@@ -35,9 +54,24 @@ model TestCase {
   questionId     Int
 }
 
+// cuándo empezó el candidato el assessment
+model Attempt {
+  id           Int        @id @default(autoincrement())
+  user         User       @relation(fields: [userId], references: [id])
+  userId       Int
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  assessmentId Int
+  startedAt    DateTime   @default(now())
+
+  @@unique([userId, assessmentId])
+}
+
 model Submission {
   id          Int       @id @default(autoincrement())
+  // correo del candidato al enviar
   candidateId String
+  user        User?     @relation(fields: [userId], references: [id])
+  userId      Int?
   questionId  Int
   code        String
   language    String

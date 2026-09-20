@@ -1,3 +1,17 @@
+export type Role = 'ADMIN' | 'EVALUATOR' | 'CANDIDATE';
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+}
+
+export interface ManagedUser extends User {
+  active: boolean;
+  createdAt: string;
+}
+
 export interface TestCase {
   id: number;
   input: string;
@@ -11,7 +25,9 @@ export interface Question {
   language: string;
   score: number;
   assessmentId: number;
+  // candidato: solo el ejemplo
   testCases?: TestCase[];
+  testCaseCount?: number;
 }
 
 export interface Assessment {
@@ -22,8 +38,17 @@ export interface Assessment {
   questions: Question[];
 }
 
+export interface AttemptInfo {
+  startedAt: string | null;
+  deadline: string | null;
+  serverNow: string;
+  timeLimit: number;
+}
+
 export interface CaseResult {
   testCaseId: number;
+  // oculto para el candidato: solo se sabe si pasó
+  hidden: boolean;
   input: string;
   expected: string;
   actualOutput: string;
@@ -55,7 +80,8 @@ export interface QuestionResult {
 
 export interface ResultsData {
   assessmentId: number;
-  candidateId: string;
+  candidate: { id: number; name: string; email: string };
+  startedAt: string | null;
   totalQuestions: number;
   correctCount: number;
   incorrectCount: number;
@@ -68,7 +94,26 @@ export interface ResultsData {
 }
 
 export interface CandidateSummary {
-  candidateId: string;
+  userId: number;
+  name: string;
+  email: string;
+  startedAt: string;
   submissions: number;
   lastActivity: string | null;
+}
+
+export interface ReviewData {
+  questions: {
+    questionId: number;
+    title: string;
+    maxScore: number;
+    submissions: {
+      id: number;
+      language: string;
+      code: string;
+      passed: boolean | null;
+      score: number | null;
+      createdAt: string;
+    }[];
+  }[];
 }
