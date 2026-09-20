@@ -1,0 +1,127 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f5f5f5;
+  color: #222;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 { margin-top: 16px; }
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.card {
+  display: block;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s;
+}
+
+.card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.card.pass { border-left: 4px solid #22c55e; }
+.card.fail { border-left: 4px solid #ef4444; }
+.card.pending { border-left: 4px solid #a3a3a3; }
+
+.meta {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.editor-layout {
+  max-width: 900px;
+}
+
+.editor-header {
+  margin-bottom: 16px;
+}
+
+.candidate-input {
+  padding: 8px;
+  width: 250px;
+  margin-top: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.editor-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+}
+
+button {
+  padding: 10px 20px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #64748b;
+}
+
+.console {
+  margin-top: 24px;
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #ddd;
+}
+
+.test-result {
+  padding: 12px;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+
+.test-result.pass { background: #dcfce7; }
+.test-result.fail { background: #fee2e2; }
+
+.stderr {
+  background: #1e1e1e;
+  color: #f87171;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.error {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+.results-summary {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #ddd;
+}
