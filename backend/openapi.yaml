@@ -1,0 +1,1052 @@
+openapi: 3.0.3
+info:
+  title: Technical Assessment Platform API
+  version: 1.0.0
+  description: |
+    API de la plataforma de evaluaciones técnicas.
+
+    Para probarla desde esta página: ejecuta **POST /auth/login**, copia el `token` de la respuesta,
+    pulsa **Authorize** y pégalo. El token dura 8 horas.
+
+    Roles: `ADMIN` (todo), `EVALUATOR` (gestiona assessments y ve resultados) y `CANDIDATE` (resuelve evaluaciones).
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: Auth
+    description: Registro, inicio de sesión y contraseña
+  - name: Users
+    description: Gestión de usuarios (solo ADMIN)
+  - name: Assessments
+    description: Evaluaciones, intentos y resultados
+  - name: Questions
+    description: Preguntas y casos de prueba
+  - name: Submissions
+    description: Ejecución y envío de código
+paths:
+  /:
+    get:
+      summary: Estado del servidor
+      security: []
+      responses:
+        '200':
+          description: El servidor está en línea
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: API corriendo correctamente
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Registrar un candidato
+      description: Solo crea usuarios con rol CANDIDATE. Los demás roles los asigna un administrador.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  example: Ana Torres
+                email:
+                  type: string
+                  format: email
+                  example: ana@correo.com
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        '201':
+          description: Cuenta creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Ya existe una cuenta con ese correo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión
+      description: Tras 8 intentos fallidos desde la misma IP y correo se bloquea durante 15 minutos.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Correo o contraseña incorrectos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: La cuenta está desactivada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Demasiados intentos fallidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Usuario de la sesión actual
+      responses:
+        '200':
+          description: Usuario autenticado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/SessionUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/password:
+    put:
+      tags: [Auth]
+      summary: Cambiar la contraseña propia
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña actualizada
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /users:
+    get:
+      tags: [Users]
+      summary: Listar usuarios
+      description: Requiere rol ADMIN.
+      responses:
+        '200':
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Users]
+      summary: Crear un usuario con cualquier rol
+      description: Requiere rol ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, role, password]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                role:
+                  $ref: '#/components/schemas/Role'
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Ya existe un usuario con ese correo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Users]
+      summary: Editar un usuario
+      description: |
+        Requiere rol ADMIN. Todos los campos son opcionales. No permite quitarle el rol de administrador
+        ni desactivar al último administrador activo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                role:
+                  $ref: '#/components/schemas/Role'
+                active:
+                  type: boolean
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        '200':
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya existe un usuario con ese correo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Users]
+      summary: Eliminar un usuario
+      description: Requiere rol ADMIN. Si el usuario ya tiene actividad registrada solo se puede desactivar.
+      responses:
+        '204':
+          description: Usuario eliminado
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El usuario tiene actividad registrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /assessments:
+    get:
+      tags: [Assessments]
+      summary: Listar assessments
+      description: Cada assessment incluye solo el id y el puntaje de sus preguntas.
+      responses:
+        '200':
+          description: Lista de assessments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssessmentSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Assessments]
+      summary: Crear un assessment
+      description: Requiere rol ADMIN o EVALUATOR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentInput'
+      responses:
+        '201':
+          description: Assessment creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assessment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /assessments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Assessments]
+      summary: Obtener un assessment con sus preguntas
+      description: |
+        ADMIN y EVALUATOR reciben las preguntas completas con todos sus casos de prueba.
+        Un CANDIDATE recibe las preguntas sin descripción hasta que inicia el intento y sin casos de prueba.
+      responses:
+        '200':
+          description: Assessment con preguntas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Assessments]
+      summary: Editar un assessment
+      description: Requiere rol ADMIN o EVALUATOR. El cambio de `timeLimit` también afecta a los intentos en curso.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentInput'
+      responses:
+        '200':
+          description: Assessment actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assessment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Assessments]
+      summary: Eliminar un assessment
+      description: Requiere rol ADMIN o EVALUATOR. Borra también sus preguntas, casos de prueba, envíos e intentos.
+      responses:
+        '204':
+          description: Assessment eliminado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /assessments/{id}/attempt:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Assessments]
+      summary: Consultar el intento propio
+      description: Si el usuario no ha iniciado el assessment, `startedAt` y `deadline` son null.
+      responses:
+        '200':
+          description: Estado del intento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttemptInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /assessments/{id}/start:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Assessments]
+      summary: Iniciar el assessment
+      description: |
+        Requiere rol CANDIDATE. Empieza el cronómetro; si ya se había iniciado, conserva la hora original.
+        No se puede iniciar un assessment sin preguntas.
+      responses:
+        '201':
+          description: Intento iniciado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttemptInfo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /assessments/{id}/candidates:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Assessments]
+      summary: Candidatos que iniciaron el assessment
+      description: Requiere rol ADMIN o EVALUATOR.
+      responses:
+        '200':
+          description: Lista de candidatos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CandidateSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /assessments/{id}/results/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [Assessments]
+      summary: Resultados de un candidato
+      description: El personal puede consultar cualquier candidato; un candidato solo los suyos. Se cuenta el último envío de cada pregunta.
+      responses:
+        '200':
+          description: Resultados agregados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Results'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /assessments/{id}/review/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [Assessments]
+      summary: Código enviado por un candidato
+      description: Requiere rol ADMIN o EVALUATOR. Devuelve todos los envíos de cada pregunta, del más reciente al más antiguo.
+      responses:
+        '200':
+          description: Envíos agrupados por pregunta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  questions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        questionId:
+                          type: integer
+                        title:
+                          type: string
+                        maxScore:
+                          type: integer
+                        submissions:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/StoredSubmission'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /questions:
+    post:
+      tags: [Questions]
+      summary: Crear una pregunta con sus casos de prueba
+      description: Requiere rol ADMIN o EVALUATOR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/QuestionInput'
+                - type: object
+                  required: [assessmentId]
+                  properties:
+                    assessmentId:
+                      type: integer
+      responses:
+        '201':
+          description: Pregunta creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: El assessment no existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /questions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Questions]
+      summary: Obtener una pregunta
+      description: |
+        El personal recibe todos los casos de prueba. Un candidato recibe solo el primero (el ejemplo),
+        y únicamente si ya inició el assessment.
+      responses:
+        '200':
+          description: Pregunta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: El candidato aún no inició el assessment; se incluye su `assessmentId`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  assessmentId:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Questions]
+      summary: Editar una pregunta
+      description: Requiere rol ADMIN o EVALUATOR. Reemplaza todos los casos de prueba. Ignora `assessmentId`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionInput'
+      responses:
+        '200':
+          description: Pregunta actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Questions]
+      summary: Eliminar una pregunta
+      description: Requiere rol ADMIN o EVALUATOR. Borra también sus casos de prueba y envíos.
+      responses:
+        '204':
+          description: Pregunta eliminada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /submissions:
+    post:
+      tags: [Submissions]
+      summary: Ejecutar o enviar código
+      description: |
+        Compila y ejecuta el código contra los casos de prueba en un contenedor aislado.
+
+        Con `save: false` (botón Ejecutar) solo ejecuta. Con `save: true` (Enviar respuesta) además guarda el envío;
+        solo los candidatos pueden hacerlo. Un candidato solo puede ejecutar mientras dura su intento.
+
+        Para un candidato solo el primer caso es visible; en los demás únicamente se informa si pasaron.
+        Cada usuario puede tener una ejecución en curso a la vez.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [questionId, code, language]
+              properties:
+                questionId:
+                  type: integer
+                code:
+                  type: string
+                language:
+                  $ref: '#/components/schemas/Language'
+                save:
+                  type: boolean
+                  default: false
+            example:
+              questionId: 1
+              language: javascript
+              save: false
+              code: "console.log(Math.max(...JSON.parse(require('fs').readFileSync(0, 'utf8'))))"
+      responses:
+        '200':
+          description: Ejecución sin guardar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionResponse'
+        '201':
+          description: Envío guardado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionResponse'
+        '400':
+          description: Código vacío o lenguaje no permitido para la pregunta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: El personal no puede enviar, el candidato no inició el assessment o su tiempo terminó
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: Ya hay una ejecución en curso para este usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: El servidor está ocupado, la cola de ejecuciones está llena
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+  responses:
+    BadRequest:
+      description: Datos no válidos
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Falta iniciar sesión o la sesión expiró
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: El rol del usuario no permite esta acción
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: El recurso no existe
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Debes iniciar sesión
+    Role:
+      type: string
+      enum: [ADMIN, EVALUATOR, CANDIDATE]
+    Language:
+      type: string
+      enum: [javascript, typescript, python, java, cobol]
+    SessionUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/SessionUser'
+    User:
+      allOf:
+        - $ref: '#/components/schemas/SessionUser'
+        - type: object
+          properties:
+            active:
+              type: boolean
+            createdAt:
+              type: string
+              format: date-time
+    AssessmentInput:
+      type: object
+      required: [name, timeLimit]
+      properties:
+        name:
+          type: string
+          example: Assessment Full Stack
+        description:
+          type: string
+        timeLimit:
+          type: integer
+          minimum: 1
+          description: Tiempo límite en minutos
+          example: 60
+    Assessment:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        timeLimit:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    AssessmentSummary:
+      allOf:
+        - $ref: '#/components/schemas/Assessment'
+        - type: object
+          properties:
+            questions:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  score:
+                    type: integer
+    AssessmentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Assessment'
+        - type: object
+          properties:
+            questions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Question'
+    TestCaseInput:
+      type: object
+      required: [expectedOutput]
+      properties:
+        input:
+          type: string
+          example: '[3,5,1,8]'
+        expectedOutput:
+          type: string
+          example: '8'
+    TestCase:
+      allOf:
+        - $ref: '#/components/schemas/TestCaseInput'
+        - type: object
+          properties:
+            id:
+              type: integer
+            questionId:
+              type: integer
+    QuestionInput:
+      type: object
+      required: [title, description, language, score, testCases]
+      properties:
+        title:
+          type: string
+          example: Máximo de un arreglo
+        description:
+          type: string
+        language:
+          type: string
+          description: Lenguajes permitidos separados por coma
+          example: javascript,python
+        score:
+          type: integer
+          minimum: 1
+        testCases:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TestCaseInput'
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        language:
+          type: string
+          example: javascript,python
+        score:
+          type: integer
+        assessmentId:
+          type: integer
+        testCaseCount:
+          type: integer
+          description: Solo viene en las consultas (GET), no al crear ni editar
+        testCases:
+          type: array
+          items:
+            $ref: '#/components/schemas/TestCase'
+    AttemptInfo:
+      type: object
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+        serverNow:
+          type: string
+          format: date-time
+        timeLimit:
+          type: integer
+          description: Minutos
+    CandidateSummary:
+      type: object
+      properties:
+        userId:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        startedAt:
+          type: string
+          format: date-time
+        submissions:
+          type: integer
+        lastActivity:
+          type: string
+          format: date-time
+          nullable: true
+    Results:
+      type: object
+      properties:
+        assessmentId:
+          type: integer
+        candidate:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            email:
+              type: string
+              format: email
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        totalQuestions:
+          type: integer
+        correctCount:
+          type: integer
+        incorrectCount:
+          type: integer
+        notAttemptedCount:
+          type: integer
+        totalMaxScore:
+          type: integer
+        totalObtainedScore:
+          type: integer
+        percentage:
+          type: integer
+        timeConsumedSeconds:
+          type: integer
+          nullable: true
+        questionResults:
+          type: array
+          items:
+            type: object
+            properties:
+              questionId:
+                type: integer
+              title:
+                type: string
+              maxScore:
+                type: integer
+              attempted:
+                type: boolean
+              passed:
+                type: boolean
+              obtainedScore:
+                type: integer
+    StoredSubmission:
+      type: object
+      properties:
+        id:
+          type: integer
+        questionId:
+          type: integer
+        code:
+          type: string
+        language:
+          $ref: '#/components/schemas/Language'
+        passed:
+          type: boolean
+          nullable: true
+        score:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    CaseResult:
+      type: object
+      properties:
+        testCaseId:
+          type: integer
+        hidden:
+          type: boolean
+          description: En un caso oculto `input`, `expected` y `actualOutput` vienen vacíos
+        input:
+          type: string
+        expected:
+          type: string
+        actualOutput:
+          type: string
+        passed:
+          type: boolean
+        stderr:
+          type: string
+          description: Error de compilación o de ejecución; vacío en casos ocultos salvo que sea de compilación
+        timedOut:
+          type: boolean
+        compileError:
+          type: boolean
+    SubmissionResponse:
+      type: object
+      properties:
+        saved:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaseResult'
+        summary:
+          type: object
+          properties:
+            totalCases:
+              type: integer
+            passedCount:
+              type: integer
+            scorePercentage:
+              type: integer
+            score:
+              type: integer
+            maxScore:
+              type: integer
+security:
+  - bearerAuth: []

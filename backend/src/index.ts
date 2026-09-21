@@ -1,7 +1,11 @@
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
+import YAML from 'yaml';
 
 import { authenticate, checkJwtSecret, requireRole } from './auth';
 import authRouter from './routes/auth';
@@ -19,6 +23,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+if (process.env.NODE_ENV !== 'production') {
+  const spec = YAML.parse(fs.readFileSync(path.resolve(__dirname, '../openapi.yaml'), 'utf8'));
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(spec, { swaggerOptions: { persistAuthorization: true } }));
+}
 
 app.get('/', (_req, res) => {
   res.json({ status: 'API corriendo correctamente' });
