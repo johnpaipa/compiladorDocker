@@ -39,12 +39,22 @@ export function passwordProblem(password: unknown): string | null {
   return null;
 }
 
+const MIN_SECRET_LENGTH = 32;
+const GENERATE_HINT = 'genera uno con: openssl rand -hex 48';
+
 // se lee al primer uso porque dotenv carga después de los imports
 let secret: string | undefined;
 function getSecret(): string {
   if (!secret) {
-    secret = process.env.JWT_SECRET;
-    if (!secret) {
+    const configured = process.env.JWT_SECRET;
+    if (configured) {
+      // el valor de .env.example es público
+      if (configured.length < MIN_SECRET_LENGTH || /cambia/i.test(configured)) {
+        throw new Error(`JWT_SECRET es demasiado corto (mínimo ${MIN_SECRET_LENGTH}) o es el valor de ejemplo; ${GENERATE_HINT}`);
+      }
+      secret = configured;
+    } else {
+      if (process.env.NODE_ENV === 'production') throw new Error(`JWT_SECRET es obligatorio en producción; ${GENERATE_HINT}`);
       // sin JWT_SECRET las sesiones se pierden al reiniciar
       secret = crypto.randomBytes(48).toString('hex');
       console.warn('JWT_SECRET no está definido, se usa uno temporal (las sesiones se pierden al reiniciar)');
@@ -52,6 +62,8 @@ function getSecret(): string {
   }
   return secret;
 }
+
+export const checkJwtSecret = () => void getSecret();
 
 const TOKEN_TTL = '8h';
 

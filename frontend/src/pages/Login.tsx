@@ -3,11 +3,11 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { errorMessage } from '../api';
 import { isStaffRole, login, useAuth } from '../auth';
 
-// atajos de desarrollo con los usuarios demo
+// atajos solo en desarrollo; la contraseña sale de VITE_DEMO_PASSWORD
+const DEMO_PASSWORD: string = import.meta.env.VITE_DEMO_PASSWORD ?? '';
 const DEMO_ACCOUNTS = [
-  { label: 'Administrador', email: 'admin@kata.local', password: 'Admin123!' },
-  { label: 'Evaluador', email: 'evaluador@kata.local', password: 'Evaluador123!' },
-  { label: 'Candidato', email: 'candidato@kata.local', password: 'Candidato123!' },
+  { label: 'Evaluador', email: 'evaluador@kata.local' },
+  { label: 'Candidato', email: 'candidato@kata.local' },
 ];
 
 export default function Login() {
@@ -65,7 +65,7 @@ export default function Login() {
           ¿Eres candidato y aún no tienes cuenta? <Link to="/register" state={{ from }}>Regístrate</Link>
         </p>
 
-        {import.meta.env.DEV && (
+        {import.meta.env.DEV && DEMO_PASSWORD && (
           <div className="demo-box">
             <span className="muted">Cuentas de demostración (solo desarrollo)</span>
             <div className="chips">
@@ -76,7 +76,7 @@ export default function Login() {
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setEmail(a.email);
-                    setPassword(a.password);
+                    setPassword(DEMO_PASSWORD);
                   }}
                 >
                   {a.label}

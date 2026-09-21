@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-import { authenticate, requireRole } from './auth';
+import { authenticate, checkJwtSecret, requireRole } from './auth';
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
 import assessmentsRouter from './routes/assessments';
@@ -38,7 +38,10 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-ensureDefaultUsers()
+(async () => {
+  checkJwtSecret();
+  await ensureDefaultUsers();
+})()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Servidor corriendo en http://localhost:${PORT}`);

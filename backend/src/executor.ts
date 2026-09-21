@@ -77,7 +77,6 @@ const KILL_GRACE_S = 1;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_HOST_OUTPUT_BYTES = 10 * 1024 * 1024;
 
-// Cada ejecución levanta un contenedor (256-512 MB, 0.5 CPU): sin tope, unas pocas peticiones tumban el servidor
 const MAX_CONCURRENT = Number(process.env.EXEC_CONCURRENCY) || 3;
 const MAX_QUEUED = Number(process.env.EXEC_QUEUE) || 20;
 
@@ -95,7 +94,7 @@ async function withSlot<T>(task: () => Promise<T>): Promise<T> {
     running++;
   } else {
     if (waiting.length >= MAX_QUEUED) throw new BusyError();
-    await new Promise<void>((resolve) => waiting.push(resolve)); // quien libera cede su cupo
+    await new Promise<void>((resolve) => waiting.push(resolve)); // el cupo pasa directo al siguiente
   }
   try {
     return await task();
@@ -246,7 +245,6 @@ function parseOutput(stdout: string, count: number, docker: DockerRun): Executio
   return Array.from({ length: count }, (_, i): ExecutionResult => {
     const fields = cases.get(i);
     if (!fields) {
-      // el contenedor terminó antes de reportar este caso
       const stderr = docker.timedOut
         ? 'Tiempo límite de ejecución excedido'
         : docker.code === 137
@@ -256,7 +254,7 @@ function parseOutput(stdout: string, count: number, docker: DockerRun): Executio
     }
     const exitCode = Number(fields[2]);
     const elapsed = Number(fields[3]);
-    // timeout devuelve 124; si además hubo que mandar SIGKILL devuelve 137
+    // timeout devuelve 124, o 137 si tuvo que usar SIGKILL
     const timedOut = exitCode === 124 || (exitCode === 137 && elapsed >= RUN_TIMEOUT_S);
     let stderr = fromB64(fields[5]);
     if (timedOut && !stderr) stderr = `Tiempo límite excedido (${RUN_TIMEOUT_S} s)`;
