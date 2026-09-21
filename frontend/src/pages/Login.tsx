@@ -3,13 +3,6 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { errorMessage } from '../api';
 import { isStaffRole, login, useAuth } from '../auth';
 
-// atajos solo en desarrollo; la contraseña sale de VITE_DEMO_PASSWORD
-const DEMO_PASSWORD: string = import.meta.env.VITE_DEMO_PASSWORD ?? '';
-const DEMO_ACCOUNTS = [
-  { label: 'Evaluador', email: 'evaluador@kata.local' },
-  { label: 'Candidato', email: 'candidato@kata.local' },
-];
-
 export default function Login() {
   const auth = useAuth();
   const location = useLocation();
@@ -64,27 +57,6 @@ export default function Login() {
         <p className="auth-alt">
           ¿Eres candidato y aún no tienes cuenta? <Link to="/register" state={{ from }}>Regístrate</Link>
         </p>
-
-        {import.meta.env.DEV && DEMO_PASSWORD && (
-          <div className="demo-box">
-            <span className="muted">Cuentas de demostración (solo desarrollo)</span>
-            <div className="chips">
-              {DEMO_ACCOUNTS.map((a) => (
-                <button
-                  key={a.email}
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setEmail(a.email);
-                    setPassword(DEMO_PASSWORD);
-                  }}
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
     </main>
   );

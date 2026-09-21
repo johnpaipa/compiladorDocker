@@ -10,7 +10,7 @@ import assessmentsRouter from './routes/assessments';
 import questionsRouter from './routes/questions';
 import submissionsRouter from './routes/submissions';
 import { prepareRunners } from './executor';
-import { ensureDefaultUsers } from './seed';
+import { prisma } from './prismaClient';
 
 dotenv.config();
 
@@ -40,7 +40,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 (async () => {
   checkJwtSecret();
-  await ensureDefaultUsers();
+  if ((await prisma.user.count()) === 0) {
+    console.warn('No hay usuarios. Crea el primero con: npm run create-user -- --email correo@dominio.com --role ADMIN');
+  }
 })()
   .then(() => {
     app.listen(PORT, () => {

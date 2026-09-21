@@ -94,7 +94,7 @@ async function withSlot<T>(task: () => Promise<T>): Promise<T> {
     running++;
   } else {
     if (waiting.length >= MAX_QUEUED) throw new BusyError();
-    await new Promise<void>((resolve) => waiting.push(resolve)); // el cupo pasa directo al siguiente
+    await new Promise<void>((resolve) => waiting.push(resolve));
   }
   try {
     return await task();
@@ -254,7 +254,6 @@ function parseOutput(stdout: string, count: number, docker: DockerRun): Executio
     }
     const exitCode = Number(fields[2]);
     const elapsed = Number(fields[3]);
-    // timeout devuelve 124, o 137 si tuvo que usar SIGKILL
     const timedOut = exitCode === 124 || (exitCode === 137 && elapsed >= RUN_TIMEOUT_S);
     let stderr = fromB64(fields[5]);
     if (timedOut && !stderr) stderr = `Tiempo límite excedido (${RUN_TIMEOUT_S} s)`;

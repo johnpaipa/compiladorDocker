@@ -48,7 +48,6 @@ function getSecret(): string {
   if (!secret) {
     const configured = process.env.JWT_SECRET;
     if (configured) {
-      // el valor de .env.example es público
       if (configured.length < MIN_SECRET_LENGTH || /cambia/i.test(configured)) {
         throw new Error(`JWT_SECRET es demasiado corto (mínimo ${MIN_SECRET_LENGTH}) o es el valor de ejemplo; ${GENERATE_HINT}`);
       }

@@ -1248,16 +1248,6 @@ a.table-title:hover {
   text-align: center;
 }
 
-.demo-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-}
-
 .user-link {
   display: flex;
   align-items: center;
