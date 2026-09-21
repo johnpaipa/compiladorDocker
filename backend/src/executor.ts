@@ -1,9 +1,7 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
-import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -12,6 +10,7 @@ export interface ExecutionResult {
   stderr: string;
   success: boolean;
   timedOut: boolean;
+  compileError: boolean;
 }
 
 interface LanguageConfig {
@@ -43,9 +42,9 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
   },
   java: {
     image: 'eclipse-temurin:21-jdk',
-    fileName: 'Main.java', // la clase pública debe llamarse Main
+    fileName: 'Main.java', 
     memory: '256m',
-    compile: 'javac Main.java 2> compile_error.txt',
+    compile: 'javac Main.java',
     run: 'java Main',
     compileBudgetMs: 20000,
   },
@@ -54,9 +53,8 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
     dockerfileDir: runnerDir('typescript'),
     fileName: 'solution.ts',
     memory: '512m', // tsc necesita más memoria
-    // tsc imprime los errores por stdout
     compile:
-      'tsc solution.ts --target es2022 --module commonjs --moduleResolution node --skipLibCheck --typeRoots /opt/ts/node_modules/@types --types node > compile_error.txt 2>&1',
+      'tsc solution.ts --target es2022 --module commonjs --moduleResolution node --skipLibCheck --typeRoots /opt/ts/node_modules/@types --types node',
     run: 'node solution.js',
     compileBudgetMs: 40000,
   },
@@ -65,7 +63,7 @@ const LANGUAGE_CONFIG: Record<string, LanguageConfig> = {
     dockerfileDir: runnerDir('cobol'),
     fileName: 'solution.cob',
     memory: '256m',
-    compile: 'cobc -x -free -o main solution.cob 2> compile_error.txt',
+    compile: 'cobc -x -free -o main solution.cob',
     run: './main',
     compileBudgetMs: 30000,
   },
@@ -75,8 +73,38 @@ export const SUPPORTED_LANGUAGES = Object.keys(LANGUAGE_CONFIG);
 
 const RUN_TIMEOUT_S = 5;
 const COMPILE_TIMEOUT_S = 60;
-const COMPILE_FAILED = 100;
-const MAX_OUTPUT_CHARS = 64 * 1024;
+const KILL_GRACE_S = 1; 
+const MAX_OUTPUT_BYTES = 64 * 1024;
+const MAX_HOST_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+// Cada ejecución levanta un contenedor (256-512 MB, 0.5 CPU): sin tope, unas pocas peticiones tumban el servidor
+const MAX_CONCURRENT = Number(process.env.EXEC_CONCURRENCY) || 3;
+const MAX_QUEUED = Number(process.env.EXEC_QUEUE) || 20;
+
+export class BusyError extends Error {
+  constructor() {
+    super('El servidor está ocupado ejecutando otras evaluaciones, intenta de nuevo en unos segundos');
+  }
+}
+
+let running = 0;
+const waiting: Array<() => void> = [];
+
+async function withSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (running < MAX_CONCURRENT) {
+    running++;
+  } else {
+    if (waiting.length >= MAX_QUEUED) throw new BusyError();
+    await new Promise<void>((resolve) => waiting.push(resolve)); // quien libera cede su cupo
+  }
+  try {
+    return await task();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else running--;
+  }
+}
 
 const imageReady = new Map<string, Promise<void>>();
 
@@ -113,20 +141,41 @@ export function prepareRunners() {
   }
 }
 
-// run.sh compila una vez y ejecuta cada in_N.txt; va en un archivo por las comillas de cmd
+
 function buildScript(config: LanguageConfig): string {
   const lines = [
-    '#!/bin/sh',
-    'ulimit -f 20480', // limita lo que puede escribir el programa
+    'ulimit -f 20480', 
+    'DROP="setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs"',
+    'killall() { for pass in 1 2 3; do for p in /proc/[0-9]*; do p=${p#/proc/}; [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null; done; done; }',
+    'IFS= read -r SRC',
+    `printf '%s' "$SRC" | base64 -d > /work/${config.fileName}`,
+    'n=0',
+    'while IFS= read -r line; do',
+    `  printf '%s' "$line" | base64 -d > "/private/in_$n.txt"`,
+    '  n=$((n+1))',
+    'done',
+    'cd /work',
   ];
   if (config.compile) {
-    lines.push(`timeout ${COMPILE_TIMEOUT_S} ${config.compile} || { cat compile_error.txt >&2; exit ${COMPILE_FAILED}; }`);
+    lines.push(
+      `$DROP timeout -k ${KILL_GRACE_S} ${COMPILE_TIMEOUT_S} ${config.compile} > /private/compile.txt 2>&1`,
+      'rc=$?',
+      'if [ $rc -ne 0 ]; then',
+      '  killall',
+      `  echo "COMPILE $rc $(head -c ${MAX_OUTPUT_BYTES} /private/compile.txt | base64 -w0)"`,
+      '  exit 0',
+      'fi'
+    );
   }
   lines.push(
     'i=0',
-    'while [ -f "in_$i.txt" ]; do',
-    `  timeout ${RUN_TIMEOUT_S} ${config.run} < "in_$i.txt" > "out_$i.txt" 2> "err_$i.txt"`,
-    '  echo $? > "code_$i.txt"',
+    'while [ "$i" -lt "$n" ]; do',
+    '  t0=$(date +%s)',
+    `  $DROP timeout -k ${KILL_GRACE_S} ${RUN_TIMEOUT_S} ${config.run} < "/private/in_$i.txt" > "/private/out_$i.txt" 2> "/private/err_$i.txt"`,
+    '  code=$?',
+    '  elapsed=$(( $(date +%s) - t0 ))',
+    '  killall', 
+    `  echo "CASE $i $code $elapsed $(head -c ${MAX_OUTPUT_BYTES} "/private/out_$i.txt" | base64 -w0) $(head -c ${MAX_OUTPUT_BYTES} "/private/err_$i.txt" | base64 -w0)"`,
     '  i=$((i+1))',
     'done',
     'exit 0',
@@ -135,8 +184,118 @@ function buildScript(config: LanguageConfig): string {
   return lines.join('\n');
 }
 
-const readTrimmed = (file: string) =>
-  fs.existsSync(file) ? fs.readFileSync(file, 'utf8').slice(0, MAX_OUTPUT_CHARS).trim() : '';
+interface DockerRun {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  timedOut: boolean;
+}
+
+
+function runDocker(args: string[], input: string, timeoutMs: number): Promise<DockerRun> {
+  return new Promise((resolve) => {
+    const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => {
+      if (stdout.length < MAX_HOST_OUTPUT_BYTES) stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < MAX_HOST_OUTPUT_BYTES) stderr += chunk;
+    });
+    child.stdin.on('error', () => undefined);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr: err.message, code: null, timedOut: false });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code, timedOut });
+    });
+    child.stdin.end(input);
+  });
+}
+
+const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64');
+const fromB64 = (text: string | undefined) => Buffer.from(text ?? '', 'base64').toString('utf8').trim();
+
+function parseOutput(stdout: string, count: number, docker: DockerRun): ExecutionResult[] {
+  const lines = stdout.split('\n');
+
+  const compile = lines.find((l) => l.startsWith('COMPILE '));
+  if (compile) {
+    const [, rc, output] = compile.split(' ');
+    const stderr = fromB64(output) || (rc === '124' || rc === '137' ? 'Tiempo de compilación excedido' : 'Error de compilación');
+    return Array.from({ length: count }, () => ({ stdout: '', stderr, success: false, timedOut: false, compileError: true }));
+  }
+
+  const cases = new Map<number, string[]>();
+  for (const line of lines) {
+    if (!line.startsWith('CASE ')) continue;
+    const fields = line.split(' ');
+    cases.set(Number(fields[1]), fields);
+  }
+
+  return Array.from({ length: count }, (_, i): ExecutionResult => {
+    const fields = cases.get(i);
+    if (!fields) {
+      // el contenedor terminó antes de reportar este caso
+      const stderr = docker.timedOut
+        ? 'Tiempo límite de ejecución excedido'
+        : docker.code === 137
+          ? 'Proceso terminado: límite de memoria excedido'
+          : docker.stderr.trim() || 'La ejecución terminó de forma inesperada';
+      return { stdout: '', stderr, success: false, timedOut: docker.timedOut, compileError: false };
+    }
+    const exitCode = Number(fields[2]);
+    const elapsed = Number(fields[3]);
+    // timeout devuelve 124; si además hubo que mandar SIGKILL devuelve 137
+    const timedOut = exitCode === 124 || (exitCode === 137 && elapsed >= RUN_TIMEOUT_S);
+    let stderr = fromB64(fields[5]);
+    if (timedOut && !stderr) stderr = `Tiempo límite excedido (${RUN_TIMEOUT_S} s)`;
+    if (exitCode === 137 && !timedOut && !stderr) stderr = 'Proceso terminado: límite de memoria excedido';
+    return { stdout: fromB64(fields[4]), stderr, success: exitCode === 0, timedOut, compileError: false };
+  });
+}
+
+async function execute(config: LanguageConfig, code: string, inputs: string[]): Promise<ExecutionResult[]> {
+  const containerName = `kata-${crypto.randomBytes(6).toString('hex')}`;
+  const args = [
+    'run', '--rm', '-i',
+    '--name', containerName,
+    '--network', 'none',
+    `--memory=${config.memory}`,
+    `--memory-swap=${config.memory}`, 
+    '--cpus=0.5',
+    '--pids-limit=256', // evita fork bombs
+    '--ulimit', 'nofile=1024:1024',
+    '--security-opt', 'no-new-privileges',
+    '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'KILL',
+    '--read-only',
+    '--tmpfs', '/tmp:rw,exec,nosuid,mode=1777,size=64m',
+    '--tmpfs', '/work:rw,exec,nosuid,mode=1777,size=64m', 
+    '--tmpfs', '/private:rw,noexec,nosuid,mode=0700,size=32m',
+    config.image,
+    'sh', '-c', buildScript(config),
+  ];
+  const payload = [code.endsWith('\n') ? code : code + '\n', ...inputs].map(b64).join('\n') + '\n';
+
+  // compilación + un margen por cada caso
+  const hostTimeoutMs = config.compileBudgetMs + inputs.length * (RUN_TIMEOUT_S + KILL_GRACE_S + 1) * 1000 + 8000;
+
+  const docker = await runDocker(args, payload, hostTimeoutMs);
+  if (docker.timedOut || (docker.code !== 0 && docker.code !== null)) {
+    await execAsync(`docker rm -f ${containerName}`).catch(() => undefined);
+  }
+  return parseOutput(docker.stdout, inputs.length, docker);
+}
 
 export async function runTests(
   language: string,
@@ -150,64 +309,5 @@ export async function runTests(
   if (inputs.length === 0) return [];
 
   await ensureImage(config);
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-'));
-  fs.writeFileSync(path.join(tempDir, config.fileName), code.endsWith('\n') ? code : code + '\n');
-  fs.writeFileSync(path.join(tempDir, 'run.sh'), buildScript(config));
-  inputs.forEach((input, i) => fs.writeFileSync(path.join(tempDir, `in_${i}.txt`), input));
-
-  const dockerVolumePath = tempDir
-    .replace(/\\/g, '/')
-    .replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
-
-  const containerName = `kata-${crypto.randomBytes(6).toString('hex')}`;
-  const dockerCommand = [
-    'docker run --rm',
-    `--name ${containerName}`,
-    '--network none',
-    `--memory=${config.memory}`,
-    '--cpus=0.5',
-    '--pids-limit=256', // evita fork bombs
-    '--security-opt no-new-privileges',
-    `-v "${dockerVolumePath}:/app"`, // sin :ro para que el compilador pueda escribir
-    '-w /app',
-    config.image,
-    'sh run.sh',
-  ].join(' ');
-
-  // compilación + un margen por cada caso
-  const hostTimeoutMs = config.compileBudgetMs + inputs.length * (RUN_TIMEOUT_S + 1) * 1000 + 8000;
-
-  try {
-    try {
-      await execAsync(dockerCommand, { timeout: hostTimeoutMs, maxBuffer: 10 * 1024 * 1024 });
-    } catch (error: any) {
-      // si docker se corta por tiempo el contenedor sigue vivo, se borra a mano
-      await execAsync(`docker rm -f ${containerName}`).catch(() => undefined);
-
-      if (error.code === COMPILE_FAILED) {
-        const stderr = (error.stderr ?? '').trim() || 'Tiempo de compilación excedido';
-        return inputs.map(() => ({ stdout: '', stderr, success: false, timedOut: false }));
-      }
-      const timedOut = Boolean(error.killed || error.signal === 'SIGTERM');
-      const stderr = timedOut ? 'Tiempo límite de ejecución excedido' : (error.stderr || error.message).trim();
-      return inputs.map(() => ({ stdout: '', stderr, success: false, timedOut }));
-    }
-
-    return inputs.map((_, i) => {
-      const exitCode = Number(readTrimmed(path.join(tempDir, `code_${i}.txt`)) || '-1');
-      const timedOut = exitCode === 124; // timeout devuelve 124
-      let stderr = readTrimmed(path.join(tempDir, `err_${i}.txt`));
-      if (timedOut && !stderr) stderr = `Tiempo límite excedido (${RUN_TIMEOUT_S} s)`;
-      if (exitCode === 137 && !stderr) stderr = 'Proceso terminado: límite de memoria excedido';
-      return {
-        stdout: readTrimmed(path.join(tempDir, `out_${i}.txt`)),
-        stderr,
-        success: exitCode === 0,
-        timedOut,
-      };
-    });
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
+  return withSlot(() => execute(config, code, inputs));
 }

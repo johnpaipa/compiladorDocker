@@ -6,7 +6,13 @@ export interface Diagnostic {
 
 const first = (re: RegExp, text: string) => re.exec(text);
 
-export function diagnose(language: string, stderr: string): Diagnostic | null {
+
+export function diagnose(language: string, stderr: string, compileFailed = false): Diagnostic | null {
+  const diagnostic = classify(language, stderr);
+  return diagnostic && compileFailed ? { ...diagnostic, kind: 'compile' } : diagnostic;
+}
+
+function classify(language: string, stderr: string): Diagnostic | null {
   if (!stderr.trim()) return null;
 
   if (language === 'java') {
@@ -28,13 +34,13 @@ export function diagnose(language: string, stderr: string): Diagnostic | null {
   }
 
   if (language === 'typescript') {
-    // tsc: solution.ts(5,7): error TS2304: Cannot find name 'x'.
+    
     const compile = first(/solution\.ts\((\d+),\d+\): error (TS\d+: [^\n]+)/, stderr);
     if (compile) return { kind: 'compile', line: Number(compile[1]), message: compile[2] };
   }
 
   if (language === 'cobol') {
-    // cobc: solution.cob:6: error: 'FOO' is not defined
+    
     const compile = first(/solution\.cob:(\d+): error: ([^\n]+)/, stderr);
     if (compile) return { kind: 'compile', line: Number(compile[1]), message: compile[2] };
   }

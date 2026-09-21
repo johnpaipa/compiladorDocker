@@ -22,7 +22,7 @@ export default function CodeEditor() {
   const { data: assessment } = useApi<Assessment>(question ? `/assessments/${question.assessmentId}` : null);
   const { attempt, started, loading: attemptLoading } = useAttempt(staff || !question ? null : question.assessmentId);
 
-  // 403 con assessmentId: el candidato aún no comenzó
+
   const lockedAssessmentId = (errorBody as { assessmentId?: number } | null)?.assessmentId;
   if (errorStatus === 403 && lockedAssessmentId) {
     return <Navigate to={`/assessments/${lockedAssessmentId}`} replace />;
@@ -69,6 +69,14 @@ interface WorkspaceProps {
 
 type RunMode = 'run' | 'submit';
 
+// diagnóstico del primer caso con stderr
+const diagnoseOutput = (language: string, output: SubmissionResponse) =>
+  diagnose(
+    language,
+    output.results.find((r) => r.stderr)?.stderr ?? '',
+    output.results.some((r) => r.compileError),
+  );
+
 function Workspace({ question, assessment, user, staff, attempt }: WorkspaceProps) {
   const allowed = parseLanguages(question.language);
   const [language, setLanguage] = useState(allowed[0]!);
@@ -88,10 +96,7 @@ function Workspace({ question, assessment, user, staff, attempt }: WorkspaceProp
   const resultsPath = `/results/${assessment.id}/${user.id}`;
   const backPath = `/assessments/${assessment.id}`;
 
-  // diagnóstico del primer caso con stderr
-  const diagnostic = output
-    ? diagnose(language, output.results.find((r) => r.stderr)?.stderr ?? '')
-    : null;
+  const diagnostic = output ? diagnoseOutput(language, output) : null;
 
   const setMarkers = (diag: Diagnostic | null) => {
     const editor = editorRef.current;
@@ -129,7 +134,7 @@ function Workspace({ question, assessment, user, staff, attempt }: WorkspaceProp
         save: mode === 'submit',
       });
       setOutput(res.data);
-      setMarkers(diagnose(language, res.data.results.find((r) => r.stderr)?.stderr ?? ''));
+      setMarkers(diagnoseOutput(language, res.data));
     } catch (err) {
       setRunError(errorMessage(err));
     } finally {
@@ -137,7 +142,6 @@ function Workspace({ question, assessment, user, staff, attempt }: WorkspaceProp
     }
   };
 
-  // Ctrl/Cmd+Enter usa siempre la última versión de handleRun
   const runRef = useRef(handleRun);
   useEffect(() => {
     runRef.current = handleRun;
@@ -299,6 +303,7 @@ function Console({ running, output, error, diagnostic }: ConsoleProps) {
   const allPassed = totalCases > 0 && passedCount === totalCases;
   const failed = totalCases - passedCount;
   const compileError = diagnostic?.kind === 'compile' ? diagnostic : null;
+  const compilerOutput = output.results.find((r) => r.compileError)?.stderr;
 
   return (
     <div className="console">
@@ -312,6 +317,7 @@ function Console({ running, output, error, diagnostic }: ConsoleProps) {
           <strong>✓ Compilación exitosa</strong>
         )}
       </div>
+      {compilerOutput && <pre className="stderr">{compilerOutput}</pre>}
 
       {!compileError && diagnostic && (
         <div className="compile compile-warn">
@@ -377,7 +383,7 @@ function CaseCard({ index, result: r }: { index: number; result: CaseResult }) {
             <pre>{r.actualOutput || '(sin salida)'}</pre>
           </div>
         </div>
-        {r.stderr && <pre className="stderr">{r.stderr}</pre>}
+        {r.stderr && !r.compileError && <pre className="stderr">{r.stderr}</pre>}
       </div>
     </details>
   );

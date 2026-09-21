@@ -25,7 +25,6 @@ export interface Question {
   language: string;
   score: number;
   assessmentId: number;
-  // candidato: solo el ejemplo
   testCases?: TestCase[];
   testCaseCount?: number;
 }
@@ -47,7 +46,6 @@ export interface AttemptInfo {
 
 export interface CaseResult {
   testCaseId: number;
-  // oculto para el candidato: solo se sabe si pasó
   hidden: boolean;
   input: string;
   expected: string;
@@ -55,6 +53,7 @@ export interface CaseResult {
   passed: boolean;
   stderr: string;
   timedOut: boolean;
+  compileError: boolean;
 }
 
 export interface SubmissionResponse {

@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { prisma } from '../prismaClient';
-import { runTests } from '../executor';
+import { BusyError, runTests } from '../executor';
 import { isStaff } from '../auth';
 import { findAttempt, isExpired } from '../attempts';
 
 const router = Router();
 
-// save: false solo ejecuta (botón Ejecutar); save: true además guarda el envío.
-// El personal puede probar código pero no enviar respuestas.
+
+const executing = new Set<number>();
+
+
 router.post('/', async (req, res) => {
   try {
     const user = req.user!;
@@ -42,8 +44,18 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: `Lenguaje no permitido para esta pregunta: ${language}` });
     }
 
+    if (executing.has(user.id)) {
+      return res.status(429).json({ error: 'Ya tienes una ejecución en curso, espera a que termine' });
+    }
+    executing.add(user.id);
+
     // se compila una vez y se corren todos los casos juntos
-    const executions = await runTests(language, code, question.testCases.map((t) => t.input));
+    let executions;
+    try {
+      executions = await runTests(language, code, question.testCases.map((t) => t.input));
+    } finally {
+      executing.delete(user.id);
+    }
 
     let passedCount = 0;
     const results = question.testCases.map((testCase, i) => {
@@ -62,8 +74,9 @@ router.post('/', async (req, res) => {
         expected: hidden ? '' : expected,
         actualOutput: hidden ? '' : actualOutput,
         passed,
-        stderr: result.stderr,
+        stderr: hidden && !result.compileError ? '' : result.stderr,
         timedOut: result.timedOut,
+        compileError: result.compileError,
       };
     });
 
@@ -88,6 +101,7 @@ router.post('/', async (req, res) => {
 
     res.status(save ? 201 : 200).json({ saved: Boolean(save), results, summary });
   } catch (error: any) {
+    if (error instanceof BusyError) return res.status(503).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Error al procesar la submission', details: error.message });
   }
