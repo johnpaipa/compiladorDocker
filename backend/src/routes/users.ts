@@ -117,6 +117,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Debe quedar al menos un administrador activo' });
     }
 
+    await prisma.assignment.deleteMany({ where: { userId: id } });
     await prisma.user.delete({ where: { id } });
     res.status(204).end();
   } catch (error) {

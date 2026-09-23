@@ -92,6 +92,14 @@ export interface ResultsData {
   questionResults: QuestionResult[];
 }
 
+export interface AssignedCandidate {
+  userId: number;
+  name: string;
+  email: string;
+  assignedAt: string;
+  started: boolean;
+}
+
 export interface CandidateSummary {
   userId: number;
   name: string;

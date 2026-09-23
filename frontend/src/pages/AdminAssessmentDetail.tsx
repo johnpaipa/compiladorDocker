@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import api, { errorMessage } from '../api';
 import { useApi } from '../useApi';
@@ -7,15 +7,18 @@ import { Badge, PageState } from '../components/ui';
 import LanguageIcon from '../components/LanguageIcon';
 import { formatDate } from '../format';
 import { languageLabel, parseLanguages } from '../languages';
-import type { Assessment, CandidateSummary } from '../types';
+import type { Assessment, AssignedCandidate, CandidateSummary } from '../types';
 
 export default function AdminAssessmentDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: assessment, error, loading, reload } = useApi<Assessment>(`/assessments/${id}`);
+  const { data: assignments, reload: reloadAssignments } = useApi<AssignedCandidate[]>(`/assessments/${id}/assignments`);
   const { data: candidates } = useApi<CandidateSummary[]>(`/assessments/${id}/candidates`);
   const [editing, setEditing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [assignEmail, setAssignEmail] = useState('');
+  const [assigning, setAssigning] = useState(false);
 
   if (loading || error || !assessment) {
     return (
@@ -43,6 +46,33 @@ export default function AdminAssessmentDetail() {
     try {
       await api.delete(`/assessments/${assessment.id}`);
       navigate('/admin');
+    } catch (err) {
+      setActionError(errorMessage(err));
+    }
+  };
+
+  const handleAssign = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assignEmail.trim() || assigning) return;
+    setAssigning(true);
+    setActionError(null);
+    try {
+      await api.post(`/assessments/${assessment.id}/assignments`, { email: assignEmail.trim() });
+      setAssignEmail('');
+      reloadAssignments();
+    } catch (err) {
+      setActionError(errorMessage(err));
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const unassign = async (userId: number, name: string) => {
+    if (!window.confirm(`¿Quitarle a "${name}" el acceso a este assessment?`)) return;
+    try {
+      await api.delete(`/assessments/${assessment.id}/assignments/${userId}`);
+      setActionError(null);
+      reloadAssignments();
     } catch (err) {
       setActionError(errorMessage(err));
     }
@@ -137,7 +167,61 @@ export default function AdminAssessmentDetail() {
       )}
 
       <div className="section-title">
-        <h2>Candidatos</h2>
+        <h2>Candidatos asignados</h2>
+      </div>
+      <p className="muted">Solo los candidatos asignados pueden ver e iniciar este assessment.</p>
+      <form className="form-row" onSubmit={handleAssign}>
+        <label className="field field-grow">
+          <span className="field-label">Correo del candidato</span>
+          <input
+            className="input"
+            type="email"
+            value={assignEmail}
+            onChange={(e) => setAssignEmail(e.target.value)}
+            placeholder="candidato@correo.com"
+          />
+        </label>
+        <button className="btn" type="submit" disabled={!assignEmail.trim() || assigning}>
+          {assigning ? 'Asignando…' : 'Asignar'}
+        </button>
+      </form>
+
+      {!assignments || assignments.length === 0 ? (
+        <div className="state">Todavía no le has asignado este assessment a ningún candidato.</div>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Candidato</th>
+                <th>Asignado</th>
+                <th>Estado</th>
+                <th aria-label="Acciones" />
+              </tr>
+            </thead>
+            <tbody>
+              {assignments.map((a) => (
+                <tr key={a.userId}>
+                  <td>
+                    <span className="table-title">{a.name}</span>
+                    <div className="muted table-sub">{a.email}</div>
+                  </td>
+                  <td>{formatDate(a.assignedAt)}</td>
+                  <td>
+                    <Badge tone={a.started ? 'ok' : 'neutral'}>{a.started ? 'Ya inició' : 'Sin iniciar'}</Badge>
+                  </td>
+                  <td className="table-actions">
+                    <button className="btn btn-danger btn-sm" onClick={() => unassign(a.userId, a.name)}>Quitar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="section-title">
+        <h2>Actividad de candidatos</h2>
       </div>
       {!candidates || candidates.length === 0 ? (
         <div className="state">Ningún candidato ha iniciado este assessment todavía.</div>

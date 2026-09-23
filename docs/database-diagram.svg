@@ -1,0 +1,238 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1010" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowDashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1010" fill="#ffffff"/>
+
+  <text x="800" y="40" text-anchor="middle" font-size="26" font-weight="700" fill="#003da5">Technical Assessment Platform — Modelo de datos</text>
+  <text x="800" y="64" text-anchor="middle" font-size="14" fill="#5b6b88">PostgreSQL · esquema real (Prisma + migraciones)</text>
+
+  <!-- ============ RELACIONES (debajo de las cajas) ============ -->
+  <!-- Attempt -> User (elbow) -->
+  <path d="M 700,390 L 700,350 L 360,350 L 360,306" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Attempt -> Assessment (elbow) -->
+  <path d="M 900,390 L 900,350 L 1240,350 L 1240,306" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Question -> Assessment (straight) -->
+  <line x1="1300" y1="390" x2="1300" y2="306" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- TestCase -> Question (straight) -->
+  <line x1="1300" y1="650" x2="1300" y2="584" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Submission -> User (straight) -->
+  <line x1="300" y1="390" x2="300" y2="306" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Submission -.-> Question (sin FK real) -->
+  <path d="M 460,595 L 1140,595 L 1140,578" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowDashed)"/>
+
+  <!-- etiquetas de relación -->
+  <text x="520" y="345" text-anchor="middle" font-size="11" fill="#334155">userId</text>
+  <text x="1070" y="345" text-anchor="middle" font-size="11" fill="#334155">assessmentId</text>
+  <text x="1308" y="345" font-size="11" fill="#334155">assessmentId</text>
+  <text x="1308" y="620" font-size="11" fill="#334155">questionId</text>
+  <text x="308" y="366" font-size="11" fill="#334155">userId · ON DELETE SET NULL</text>
+  <text x="800" y="588" text-anchor="middle" font-size="11" fill="#64748b">questionId — sin FK en la base de datos (se borra a mano en el código)</text>
+
+  <!-- ============ USER ============ -->
+  <g>
+    <rect x="140" y="110" width="320" height="196" rx="10" fill="#e8eff9" stroke="#003da5" stroke-width="1.5"/>
+    <rect x="140" y="110" width="320" height="34" rx="10" fill="#003da5"/>
+    <rect x="140" y="126" width="320" height="18" fill="#003da5"/>
+    <text x="160" y="133" font-size="15" font-weight="700" fill="#ffffff">User</text>
+    <g font-size="12.5">
+      <text x="160" y="166" font-weight="700" fill="#00256b">PK</text>
+      <text x="192" y="166" fill="#1f2a44">id</text>
+      <text x="448" y="166" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="192" y="186" fill="#1f2a44">name</text>
+      <text x="448" y="186" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="160" y="206" font-weight="700" fill="#0f766e">UQ</text>
+      <text x="192" y="206" fill="#1f2a44">email</text>
+      <text x="448" y="206" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="192" y="226" fill="#1f2a44">passwordHash</text>
+      <text x="448" y="226" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="192" y="246" fill="#1f2a44">role</text>
+      <text x="448" y="246" text-anchor="end" fill="#5b6b88">Role = CANDIDATE</text>
+
+      <text x="192" y="266" fill="#1f2a44">active</text>
+      <text x="448" y="266" text-anchor="end" fill="#5b6b88">Boolean = true</text>
+
+      <text x="192" y="286" fill="#1f2a44">createdAt</text>
+      <text x="448" y="286" text-anchor="end" fill="#5b6b88">DateTime = now()</text>
+    </g>
+  </g>
+
+  <!-- ============ ASSESSMENT ============ -->
+  <g>
+    <rect x="1140" y="110" width="320" height="196" rx="10" fill="#eef0fb" stroke="#4338ca" stroke-width="1.5"/>
+    <rect x="1140" y="110" width="320" height="34" rx="10" fill="#4338ca"/>
+    <rect x="1140" y="126" width="320" height="18" fill="#4338ca"/>
+    <text x="1160" y="133" font-size="15" font-weight="700" fill="#ffffff">Assessment</text>
+    <g font-size="12.5">
+      <text x="1160" y="166" font-weight="700" fill="#00256b">PK</text>
+      <text x="1192" y="166" fill="#1f2a44">id</text>
+      <text x="1448" y="166" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="1192" y="186" fill="#1f2a44">name</text>
+      <text x="1448" y="186" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="1192" y="206" fill="#1f2a44">description</text>
+      <text x="1448" y="206" text-anchor="end" fill="#5b6b88">String?</text>
+
+      <text x="1192" y="226" fill="#1f2a44">timeLimit</text>
+      <text x="1448" y="226" text-anchor="end" fill="#5b6b88">Int (minutos)</text>
+
+      <text x="1192" y="246" fill="#1f2a44">createdAt</text>
+      <text x="1448" y="246" text-anchor="end" fill="#5b6b88">DateTime = now()</text>
+    </g>
+  </g>
+
+  <!-- ============ ATTEMPT ============ -->
+  <g>
+    <rect x="640" y="390" width="320" height="180" rx="10" fill="#fff2e0" stroke="#c2410c" stroke-width="1.5"/>
+    <rect x="640" y="390" width="320" height="34" rx="10" fill="#c2410c"/>
+    <rect x="640" y="406" width="320" height="18" fill="#c2410c"/>
+    <text x="660" y="413" font-size="15" font-weight="700" fill="#ffffff">Attempt</text>
+    <g font-size="12.5">
+      <text x="660" y="446" font-weight="700" fill="#00256b">PK</text>
+      <text x="692" y="446" fill="#1f2a44">id</text>
+      <text x="948" y="446" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="660" y="466" font-weight="700" fill="#6b21a8">FK</text>
+      <text x="692" y="466" fill="#1f2a44">userId</text>
+      <text x="948" y="466" text-anchor="end" fill="#5b6b88">Int → User</text>
+
+      <text x="660" y="486" font-weight="700" fill="#6b21a8">FK</text>
+      <text x="692" y="486" fill="#1f2a44">assessmentId</text>
+      <text x="948" y="486" text-anchor="end" fill="#5b6b88">Int → Assessment</text>
+
+      <text x="692" y="506" fill="#1f2a44">startedAt</text>
+      <text x="948" y="506" text-anchor="end" fill="#5b6b88">DateTime = now()</text>
+    </g>
+    <line x1="660" y1="522" x2="940" y2="522" stroke="#fbd8b6"/>
+    <text x="800" y="544" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7c2d12">UQ (userId, assessmentId)</text>
+    <text x="800" y="560" text-anchor="middle" font-size="10.5" fill="#7c2d12">un candidato no puede repetir el mismo assessment</text>
+  </g>
+
+  <!-- ============ QUESTION ============ -->
+  <g>
+    <rect x="1140" y="390" width="320" height="194" rx="10" fill="#eef0fb" stroke="#4338ca" stroke-width="1.5"/>
+    <rect x="1140" y="390" width="320" height="34" rx="10" fill="#4338ca"/>
+    <rect x="1140" y="406" width="320" height="18" fill="#4338ca"/>
+    <text x="1160" y="413" font-size="15" font-weight="700" fill="#ffffff">Question</text>
+    <g font-size="12.5">
+      <text x="1160" y="446" font-weight="700" fill="#00256b">PK</text>
+      <text x="1192" y="446" fill="#1f2a44">id</text>
+      <text x="1448" y="446" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="1192" y="466" fill="#1f2a44">title</text>
+      <text x="1448" y="466" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="1192" y="486" fill="#1f2a44">description</text>
+      <text x="1448" y="486" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="1192" y="506" fill="#1f2a44">language</text>
+      <text x="1448" y="506" text-anchor="end" fill="#5b6b88">String (csv)</text>
+
+      <text x="1192" y="526" fill="#1f2a44">score</text>
+      <text x="1448" y="526" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="1160" y="546" font-weight="700" fill="#6b21a8">FK</text>
+      <text x="1192" y="546" fill="#1f2a44">assessmentId</text>
+      <text x="1448" y="546" text-anchor="end" fill="#5b6b88">Int → Assessment</text>
+    </g>
+  </g>
+
+  <!-- ============ TESTCASE ============ -->
+  <g>
+    <rect x="1140" y="650" width="320" height="150" rx="10" fill="#eef0fb" stroke="#4338ca" stroke-width="1.5"/>
+    <rect x="1140" y="650" width="320" height="34" rx="10" fill="#4338ca"/>
+    <rect x="1140" y="666" width="320" height="18" fill="#4338ca"/>
+    <text x="1160" y="673" font-size="15" font-weight="700" fill="#ffffff">TestCase</text>
+    <g font-size="12.5">
+      <text x="1160" y="706" font-weight="700" fill="#00256b">PK</text>
+      <text x="1192" y="706" fill="#1f2a44">id</text>
+      <text x="1448" y="706" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="1192" y="726" fill="#1f2a44">input</text>
+      <text x="1448" y="726" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="1192" y="746" fill="#1f2a44">expectedOutput</text>
+      <text x="1448" y="746" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="1160" y="766" font-weight="700" fill="#6b21a8">FK</text>
+      <text x="1192" y="766" fill="#1f2a44">questionId</text>
+      <text x="1448" y="766" text-anchor="end" fill="#5b6b88">Int → Question</text>
+    </g>
+  </g>
+
+  <!-- ============ SUBMISSION ============ -->
+  <g>
+    <rect x="140" y="390" width="320" height="238" rx="10" fill="#fff2e0" stroke="#c2410c" stroke-width="1.5"/>
+    <rect x="140" y="390" width="320" height="34" rx="10" fill="#c2410c"/>
+    <rect x="140" y="406" width="320" height="18" fill="#c2410c"/>
+    <text x="160" y="413" font-size="15" font-weight="700" fill="#ffffff">Submission</text>
+    <g font-size="12.5">
+      <text x="160" y="446" font-weight="700" fill="#00256b">PK</text>
+      <text x="192" y="446" fill="#1f2a44">id</text>
+      <text x="448" y="446" text-anchor="end" fill="#5b6b88">Int</text>
+
+      <text x="192" y="466" fill="#1f2a44">candidateId</text>
+      <text x="448" y="466" text-anchor="end" fill="#5b6b88">String (correo)</text>
+
+      <text x="160" y="486" font-weight="700" fill="#6b21a8">FK</text>
+      <text x="192" y="486" fill="#1f2a44">userId</text>
+      <text x="448" y="486" text-anchor="end" fill="#5b6b88">Int? → User</text>
+
+      <text x="192" y="506" fill="#1f2a44">questionId</text>
+      <text x="448" y="506" text-anchor="end" fill="#5b6b88">Int (sin FK)</text>
+
+      <text x="192" y="526" fill="#1f2a44">code</text>
+      <text x="448" y="526" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="192" y="546" fill="#1f2a44">language</text>
+      <text x="448" y="546" text-anchor="end" fill="#5b6b88">String</text>
+
+      <text x="192" y="566" fill="#1f2a44">passed</text>
+      <text x="448" y="566" text-anchor="end" fill="#5b6b88">Boolean?</text>
+
+      <text x="192" y="586" fill="#1f2a44">score</text>
+      <text x="448" y="586" text-anchor="end" fill="#5b6b88">Int?</text>
+
+      <text x="192" y="606" fill="#1f2a44">createdAt</text>
+      <text x="448" y="606" text-anchor="end" fill="#5b6b88">DateTime = now()</text>
+    </g>
+  </g>
+
+  <!-- ============ LEYENDA ============ -->
+  <g font-size="12" fill="#334155">
+    <rect x="140" y="850" width="16" height="16" fill="#e8eff9" stroke="#003da5"/>
+    <text x="162" y="863">Cuenta y acceso</text>
+
+    <rect x="300" y="850" width="16" height="16" fill="#eef0fb" stroke="#4338ca"/>
+    <text x="322" y="863">Contenido del assessment</text>
+
+    <rect x="540" y="850" width="16" height="16" fill="#fff2e0" stroke="#c2410c"/>
+    <text x="562" y="863">Actividad del candidato</text>
+
+    <text x="140" y="895" font-weight="700" fill="#00256b">PK</text>
+    <text x="168" y="895">clave primaria</text>
+    <text x="280" y="895" font-weight="700" fill="#6b21a8">FK</text>
+    <text x="308" y="895">clave foránea (con constraint en Postgres)</text>
+    <text x="620" y="895" font-weight="700" fill="#0f766e">UQ</text>
+    <text x="648" y="895">columna o combinación única</text>
+
+    <line x1="140" y1="925" x2="185" y2="925" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="195" y="929">relación con integridad referencial (FK real)</text>
+    <line x1="640" y1="925" x2="685" y2="925" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowDashed)"/>
+    <text x="695" y="929">referencia sin FK en la base de datos</text>
+  </g>
+
+  <text x="140" y="965" font-size="11.5" fill="#64748b">Question.assessmentId, TestCase.questionId y Attempt.* → ON DELETE RESTRICT (bloquea el borrado; el código borra en cascada a mano).</text>
+  <text x="140" y="985" font-size="11.5" fill="#64748b">Submission.userId → ON DELETE SET NULL (si se elimina el usuario, el envío se conserva sin dueño).</text>
+</svg>

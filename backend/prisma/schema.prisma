@@ -23,16 +23,19 @@ model User {
   createdAt    DateTime     @default(now())
   submissions  Submission[]
   attempts     Attempt[]
+  assignments  Assignment[] @relation("AssignmentCandidate")
+  assigned     Assignment[] @relation("AssignmentStaff")
 }
 
 model Assessment {
-  id          Int        @id @default(autoincrement())
+  id          Int          @id @default(autoincrement())
   name        String
   description String?
   timeLimit   Int
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime     @default(now())
   questions   Question[]
   attempts    Attempt[]
+  assignments Assignment[]
 }
 
 model Question {
@@ -62,6 +65,20 @@ model Attempt {
   assessment   Assessment @relation(fields: [assessmentId], references: [id])
   assessmentId Int
   startedAt    DateTime   @default(now())
+
+  @@unique([userId, assessmentId])
+}
+
+// qué candidato puede ver e iniciar cada assessment
+model Assignment {
+  id           Int        @id @default(autoincrement())
+  candidate    User       @relation("AssignmentCandidate", fields: [userId], references: [id])
+  userId       Int
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  assessmentId Int
+  assignedBy   User?      @relation("AssignmentStaff", fields: [assignedById], references: [id])
+  assignedById Int?
+  createdAt    DateTime   @default(now())
 
   @@unique([userId, assessmentId])
 }

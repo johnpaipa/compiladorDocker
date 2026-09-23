@@ -5,6 +5,9 @@ import { attemptInfo, findAttempt } from '../attempts';
 
 const router = Router();
 
+const findAssignment = (userId: number, assessmentId: number) =>
+  prisma.assignment.findUnique({ where: { userId_assessmentId: { userId, assessmentId } } });
+
 function parseAssessment(body: any): { error: string } | { data: { name: string; description: string | null; timeLimit: number } } {
   const name = String(body.name ?? '').trim();
   const description = String(body.description ?? '').trim();
@@ -26,10 +29,14 @@ router.post('/', requireStaff, async (req, res) => {
   }
 });
 
-// Listar todos los assessments
-router.get('/', async (_req, res) => {
+// Listar assessments: el personal ve todos, un candidato solo los suyos (asignados o ya iniciados)
+router.get('/', async (req, res) => {
   try {
+    const user = req.user!;
     const assessments = await prisma.assessment.findMany({
+      ...(isStaff(user)
+        ? {}
+        : { where: { OR: [{ assignments: { some: { userId: user.id } } }, { attempts: { some: { userId: user.id } } }] } }),
       include: { questions: { select: { id: true, score: true } } },
       orderBy: { id: 'asc' },
     });
@@ -56,7 +63,12 @@ router.get('/:id', async (req, res) => {
       return res.json({ ...assessment, questions: assessment.questions.map((q) => ({ ...q, testCaseCount: q.testCases.length })) });
     }
 
-    const started = Boolean(await findAttempt(user.id, id));
+    const [attempt, assignment] = await Promise.all([findAttempt(user.id, id), findAssignment(user.id, id)]);
+    if (!attempt && !assignment) {
+      return res.status(403).json({ error: 'No tienes asignado este assessment' });
+    }
+
+    const started = Boolean(attempt);
     res.json({
       ...assessment,
       questions: assessment.questions.map((q) => ({
@@ -102,6 +114,7 @@ router.delete('/:id', requireStaff, async (req, res) => {
       prisma.submission.deleteMany({ where: { questionId: { in: questionIds } } }),
       prisma.testCase.deleteMany({ where: { questionId: { in: questionIds } } }),
       prisma.question.deleteMany({ where: { assessmentId: id } }),
+      prisma.assignment.deleteMany({ where: { assessmentId: id } }),
       prisma.attempt.deleteMany({ where: { assessmentId: id } }),
       prisma.assessment.delete({ where: { id } }),
     ]);
@@ -115,9 +128,14 @@ router.delete('/:id', requireStaff, async (req, res) => {
 router.get('/:id/attempt', async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const user = req.user!;
     const assessment = await prisma.assessment.findUnique({ where: { id }, select: { timeLimit: true } });
     if (!assessment) return res.status(404).json({ error: 'Assessment no encontrado' });
-    const attempt = await findAttempt(req.user!.id, id);
+
+    const attempt = await findAttempt(user.id, id);
+    if (!isStaff(user) && !attempt && !(await findAssignment(user.id, id))) {
+      return res.status(403).json({ error: 'No tienes asignado este assessment' });
+    }
     res.json(attemptInfo(attempt, assessment.timeLimit));
   } catch (error) {
     res.status(500).json({ error: 'Error al consultar el intento' });
@@ -132,6 +150,9 @@ router.post('/:id/start', requireRole('CANDIDATE'), async (req, res) => {
     if (assessment.questions.length === 0) {
       return res.status(400).json({ error: 'Este assessment todavía no tiene preguntas' });
     }
+    if (!(await findAssignment(req.user!.id, id))) {
+      return res.status(403).json({ error: 'No tienes asignado este assessment' });
+    }
     // si ya empezó se conserva la hora original
     const attempt = await prisma.attempt.upsert({
       where: { userId_assessmentId: { userId: req.user!.id, assessmentId: id } },
@@ -142,6 +163,76 @@ router.post('/:id/start', requireRole('CANDIDATE'), async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al iniciar la evaluación' });
+  }
+});
+
+// Asignar el assessment a un candidato por correo (no afecta lo que ya inició)
+router.post('/:id/assignments', requireStaff, async (req, res) => {
+  try {
+    const assessmentId = Number(req.params.id);
+    const email = String(req.body.email ?? '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'El correo es obligatorio' });
+
+    if (!(await prisma.assessment.findUnique({ where: { id: assessmentId } }))) {
+      return res.status(404).json({ error: 'Assessment no encontrado' });
+    }
+
+    const candidate = await prisma.user.findUnique({ where: { email } });
+    if (!candidate) return res.status(404).json({ error: 'No existe un usuario con ese correo' });
+    if (candidate.role !== 'CANDIDATE') return res.status(400).json({ error: 'Solo se puede asignar a usuarios con rol candidato' });
+    if (!candidate.active) return res.status(400).json({ error: 'Ese candidato está desactivado' });
+
+    if (await findAssignment(candidate.id, assessmentId)) {
+      return res.status(409).json({ error: 'Ese candidato ya tiene asignado este assessment' });
+    }
+
+    await prisma.assignment.create({ data: { userId: candidate.id, assessmentId, assignedById: req.user!.id } });
+    res.status(201).json({ userId: candidate.id, name: candidate.name, email: candidate.email });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al asignar el assessment' });
+  }
+});
+
+// Quitar la asignación (si ya inició, el intento y sus resultados se conservan)
+router.delete('/:id/assignments/:userId', requireStaff, async (req, res) => {
+  try {
+    const assessmentId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    const assignment = await findAssignment(userId, assessmentId);
+    if (!assignment) return res.status(404).json({ error: 'Esa asignación no existe' });
+    await prisma.assignment.delete({ where: { id: assignment.id } });
+    res.status(204).end();
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al quitar la asignación' });
+  }
+});
+
+// Candidatos con acceso asignado a este assessment
+router.get('/:id/assignments', requireStaff, async (req, res) => {
+  try {
+    const assessmentId = Number(req.params.id);
+    const assignments = await prisma.assignment.findMany({
+      where: { assessmentId },
+      include: { candidate: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const attempts = await prisma.attempt.findMany({ where: { assessmentId }, select: { userId: true } });
+    const startedIds = new Set(attempts.map((a) => a.userId));
+
+    res.json(
+      assignments.map((a) => ({
+        userId: a.candidate.id,
+        name: a.candidate.name,
+        email: a.candidate.email,
+        assignedAt: a.createdAt,
+        started: startedIds.has(a.candidate.id),
+      }))
+    );
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al listar las asignaciones' });
   }
 });
 
